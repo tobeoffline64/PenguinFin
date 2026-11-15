@@ -55,6 +55,13 @@ blank). PenguinFin makes no outbound requests.
 
 Your database is at `~/.var/app/io.github.tobeoffline64.PenguinFin/data/penguinfin/penguinfin.db`.
 
+## Releasing
+
+`.github/workflows/release.yml` builds the flatpak on GitHub Actions and publishes a release.
+Bump `version` in `Cargo.toml` (and `flatpak/*.metainfo.xml`), update `.github/release-notes.md`,
+and push to `main`. The workflow creates the `v<version>` tag and release with `penguinfin.flatpak`
+and the source archive attached.
+
 ## Build from source
 
 ```bash
