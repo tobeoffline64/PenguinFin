@@ -15,6 +15,11 @@ on:
 permissions:
   contents: write
 
+# One release build at a time; a queued run re-checks and skips if the release now exists.
+concurrency:
+  group: release
+  cancel-in-progress: false
+
 jobs:
   check:
     runs-on: ubuntu-24.04
