@@ -1,0 +1,1 @@
+PenguinFin · [Releases](https://github.com/tobeoffline64/PenguinFin/releases) · [Report an issue](https://github.com/tobeoffline64/PenguinFin/issues) · This wiki is generated from [`docs/wiki/`](https://github.com/tobeoffline64/PenguinFin/tree/main/docs/wiki) in the repository.

@@ -66,6 +66,12 @@ fn initial_size() -> LogicalSize<f64> {
         .unwrap_or(LogicalSize::new(1280.0, 860.0))
 }
 
+/// The penguin icon for the window/taskbar (64×64 RGBA, generated from the app SVG).
+fn window_icon() -> dioxus::desktop::tao::window::Icon {
+    const RGBA: &[u8] = include_bytes!("../assets/icon/penguinfin-64.rgba");
+    dioxus::desktop::tao::window::Icon::from_rgba(RGBA.to_vec(), 64, 64).expect("valid 64x64 RGBA icon")
+}
+
 /// `PENGUINFIN_COMPAT_RENDERING=1` restores the slower but most compatible rendering path
 /// (XWayland, no DMA-BUF) in case a graphics driver shows a blank or flickering window.
 fn compat_rendering() -> bool {
@@ -98,6 +104,7 @@ fn main() {
         .with_window(window)
         .with_menu(None)
         .with_custom_index(index_html(&settings))
+        .with_icon(window_icon())
         .with_background_color((bg_r, bg_g, bg_b, 255))
         .with_data_directory(penguinfin::db::data_dir().join("webview"))
         .with_disable_context_menu(!cfg!(debug_assertions))

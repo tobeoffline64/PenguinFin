@@ -1,6 +1,6 @@
 [package]
 name = "penguinfin"
-version = "1.5.0"
+version = "1.6.0"
 edition = "2024"
 description = "Offline personal finance planner: recurring expenses, bills, income and investment projections"
 license = "MIT"
@@ -22,6 +22,10 @@ ureq = { version = "2.12", default-features = false, features = ["tls", "native-
 [target.'cfg(target_os = "linux")'.dependencies]
 # Already used by the webview; needed to keep native popups (dropdown lists) on the app theme.
 gtk = "0.18"
+
+[build-dependencies]
+# Embeds the icon and version info into the Windows .exe (no-op on other platforms).
+winresource = "0.1"
 
 [dev-dependencies]
 tempfile = "3"

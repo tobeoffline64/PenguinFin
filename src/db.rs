@@ -13,13 +13,29 @@ fn e<E: std::fmt::Display>(err: E) -> String {
 }
 
 /// `$XDG_DATA_HOME/penguinfin` (inside the flatpak: `~/.var/app/<id>/data/penguinfin`).
+///
+/// Windows: `%APPDATA%\PenguinFin`. macOS: `~/Library/Application Support/PenguinFin`.
 pub fn data_dir() -> PathBuf {
-    let base = std::env::var_os("XDG_DATA_HOME")
-        .map(PathBuf::from)
-        .filter(|p| p.is_absolute())
-        .or_else(|| std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".local/share")))
+    let abs = |v: &str| std::env::var_os(v).map(PathBuf::from).filter(|p| p.is_absolute());
+    if cfg!(windows) {
+        let base = abs("APPDATA").or_else(|| abs("USERPROFILE").map(|h| h.join("AppData").join("Roaming")));
+        return base.unwrap_or_else(|| PathBuf::from(".")).join("PenguinFin");
+    }
+    if cfg!(target_os = "macos")
+        && let Some(home) = abs("HOME")
+    {
+        return home.join("Library/Application Support/PenguinFin");
+    }
+    let base = abs("XDG_DATA_HOME")
+        .or_else(|| abs("HOME").map(|h| h.join(".local/share")))
         .unwrap_or_else(|| PathBuf::from("."));
     base.join("penguinfin")
+}
+
+/// The user's home folder (`%USERPROFILE%` on Windows).
+pub fn home_dir() -> PathBuf {
+    let var = if cfg!(windows) { "USERPROFILE" } else { "HOME" };
+    std::env::var_os(var).map(PathBuf::from).unwrap_or_else(|| PathBuf::from("."))
 }
 
 pub fn default_db_path() -> PathBuf {

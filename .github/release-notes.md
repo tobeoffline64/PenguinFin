@@ -1,6 +1,10 @@
-PenguinFin is an offline personal finance planner for Linux.
+PenguinFin is an offline personal finance planner for Linux and Windows. User guide: https://github.com/tobeoffline64/PenguinFin/wiki
 
-## Install (Ubuntu / any distro with Flatpak)
+## Install on Windows
+
+Download `PenguinFin-<version>-windows-x64.zip` below, extract it and run **PenguinFin.exe**. Windows may show *"Windows protected your PC"* because the app isn't code-signed: click **More info → Run anyway**. It needs the Microsoft Edge WebView2 Runtime (built into Windows 11 and up-to-date Windows 10). To update, replace `PenguinFin.exe` with the new one; your data in `%APPDATA%\PenguinFin` is kept.
+
+## Install on Linux (Ubuntu / any distro with Flatpak)
 
 ```bash
 flatpak remote-add --user --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo
@@ -29,6 +33,12 @@ If the repository is public, this also works without the GitHub CLI:
 curl -fL -o /tmp/penguinfin.flatpak https://github.com/tobeoffline64/penguinfin/releases/latest/download/penguinfin.flatpak
 flatpak install --user -y --reinstall /tmp/penguinfin.flatpak
 ```
+
+## New in 1.6.0
+- **Windows build**: a portable `PenguinFin-1.6.0-windows-x64.zip` is now attached to every release. Data is stored in `%APPDATA%\PenguinFin`, backups go to your Downloads folder.
+- The penguin icon now shows on the window and taskbar (and on the Windows `.exe`).
+- The sample household now includes minimum balances, account purposes and savings goals.
+- New **[wiki](https://github.com/tobeoffline64/PenguinFin/wiki)** with a user guide and screenshots.
 
 ## New in 1.5.0
 - **Buckets.** Split any account into named portions such as *Rainy day money* or *Car repairs*: an amount set aside now, an optional monthly top-up and an optional target. Unallocated money is shown per account. Bucket money is reserved, so savings goals won't spend it.
@@ -74,5 +84,6 @@ flatpak install --user -y --reinstall /tmp/penguinfin.flatpak
 - Stock prices are entered by hand in this version; a live quote API is planned.
 
 ## Files
-- `penguinfin.flatpak`: installable bundle (x86_64)
-- `penguinfin-1.0.0-source.tar.gz`: source code
+- `penguinfin.flatpak`: Linux bundle (x86_64)
+- `PenguinFin-<version>-windows-x64.zip`: Windows (x64), portable
+- `penguinfin-<version>-source.tar.gz`: source code

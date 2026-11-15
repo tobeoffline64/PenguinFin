@@ -1,12 +1,29 @@
 # PenguinFin
 
-Offline personal finance planner for Linux. Track income, bills and recurring expenses, add your
-checking/savings/brokerage/retirement accounts, and see month-by-month projections of where your
-money goes over the next decades.
+Offline personal finance planner for **Linux and Windows**. Track income, bills and recurring
+expenses, add your checking/savings/brokerage/retirement accounts, split them into buckets, plan
+purchases with savings goals, and see month-by-month projections of where your money goes over the
+next decades.
+
+**[Download the latest release](https://github.com/tobeoffline64/PenguinFin/releases/latest)** ·
+**[Wiki & user guide](https://github.com/tobeoffline64/PenguinFin/wiki)**
 
 Built in **Rust** with **[Dioxus](https://dioxuslabs.com) desktop** and components from
 **[Rust/UI](https://github.com/rust-ui/ui)** (Tailwind CSS v4). Data is stored in a single local
-**SQLite** file. The app makes no network requests.
+**SQLite** file. The app makes no network requests unless you turn on the optional FRED economic data.
+
+## Screenshots
+
+| | |
+|---|---|
+| ![Dashboard](docs/screenshots/dashboard.png) | ![Savings goals](docs/screenshots/savings-goals.png) |
+| **Dashboard**: net worth, cash flow, next 30 days, projection | **Savings goals**: when you can afford each purchase while keeping your reserves |
+| ![Accounts](docs/screenshots/accounts.png) | ![Accounts and buckets chart](docs/screenshots/accounts-and-buckets-chart.png) |
+| **Accounts**: purposes, minimum balances, buckets, holdings | **Accounts & buckets chart**: an account split by bucket over time |
+| ![Projections](docs/screenshots/projections.png) | ![Economic data](docs/screenshots/economic-data.png) |
+| **Projections**: net worth over decades, what-if scenarios | **Economic data**: optional live inflation and rates from FRED |
+| ![Bills](docs/screenshots/bills.png) | ![Dark mode](docs/screenshots/dark-dashboard.png) |
+| **Bills, income & expenses** with where each is paid from | **Dark mode** |
 
 ## Features
 
@@ -52,7 +69,15 @@ counted exactly, so a biweekly paycheck lands three times in some months.
 In v1, prices are typed in by hand. `src/prices.rs` defines a `PriceProvider` trait, so a live quote
 API can be added later without touching storage or the UI.
 
-## Install the flatpak
+## Install on Windows
+
+Download `PenguinFin-<version>-windows-x64.zip` from the
+[latest release](https://github.com/tobeoffline64/PenguinFin/releases/latest), extract it and run
+**PenguinFin.exe**. Windows may say *"Windows protected your PC"* because the app isn't code-signed:
+click **More info → Run anyway**. It needs the Microsoft Edge WebView2 Runtime, which Windows 11 and
+up-to-date Windows 10 already have. Data is stored in `%APPDATA%\PenguinFin\penguinfin.db`.
+
+## Install the flatpak (Linux)
 
 Download `penguinfin.flatpak` from the [latest release](https://github.com/tobeoffline64/PenguinFin/releases/latest), then:
 
@@ -100,8 +125,9 @@ Your database is at `~/.var/app/io.github.tobeoffline64.PenguinFin/data/penguinf
 
 `.github/workflows/release.yml` builds the flatpak on GitHub Actions and publishes a release.
 Bump `version` in `Cargo.toml` (and `flatpak/*.metainfo.xml`), update `.github/release-notes.md`,
-and push to `main`. The workflow creates the `v<version>` tag and release with `penguinfin.flatpak`
-and the source archive attached.
+and push to `main`. The workflow creates the `v<version>` tag and release with `penguinfin.flatpak`,
+the Windows zip and the source archive attached. `ci.yml` runs tests and a Windows build on every
+push; `wiki.yml` publishes `docs/wiki/` to the GitHub wiki.
 
 ## Build from source
 

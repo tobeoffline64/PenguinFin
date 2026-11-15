@@ -23,6 +23,11 @@
   <developer id="io.github.tobeoffline64"><name>tobeoffline64</name></developer>
   <content_rating type="oars-1.1"/>
   <releases>
+    <release version="1.6.0" date="2026-11-15">
+      <description>
+        <p>Windows build, app icon on the window, and a richer sample household.</p>
+      </description>
+    </release>
     <release version="1.5.0" date="2026-11-15">
       <description>
         <p>Buckets inside accounts (such as Rainy day money), choosing which account or bucket pays each bill, and an Accounts &amp; buckets chart.</p>

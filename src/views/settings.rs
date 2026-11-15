@@ -13,7 +13,7 @@ use std::path::PathBuf;
 
 /// Where backups go: the user's Downloads folder (the flatpak is granted access to it).
 fn backup_dir() -> PathBuf {
-    let home = std::env::var_os("HOME").map(PathBuf::from).unwrap_or_else(|| PathBuf::from("."));
+    let home = penguinfin::db::home_dir();
     if let Some(d) = std::env::var_os("XDG_DOWNLOAD_DIR").map(PathBuf::from).filter(|p| p.is_absolute()) {
         return d;
     }

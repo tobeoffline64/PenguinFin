@@ -1,4 +1,4 @@
-# Publishes a GitHub release with the flatpak bundle and source archive.
+# Publishes a GitHub release with the Linux flatpak, the Windows zip and the source archive.
 #
 # Triggers:
 #   - push to main: releases v<version from Cargo.toml> if that release doesn't exist yet
@@ -68,8 +68,53 @@ jobs:
       - name: Upload build artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: penguinfin-${{ env.VERSION }}
+          name: linux
           path: dist/*
+
+  windows:
+    needs: check
+    if: needs.check.outputs.release == 'true'
+    runs-on: windows-latest
+    env:
+      VERSION: ${{ needs.check.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+
+      # MSVC toolchain (preinstalled). WebView2's loader is linked statically, so the
+      # .exe needs no extra DLLs; Windows 10/11 already ship the WebView2 runtime.
+      - name: Build
+        run: cargo build --release --locked
+
+      - name: Package zip
+        shell: pwsh
+        run: |
+          $name = "PenguinFin-$env:VERSION-windows-x64"
+          New-Item -ItemType Directory -Force -Path $name, dist | Out-Null
+          Copy-Item target/release/penguinfin.exe "$name/PenguinFin.exe"
+          if (Test-Path target/release/WebView2Loader.dll) { Copy-Item target/release/WebView2Loader.dll $name }
+          Copy-Item LICENSE "$name/LICENSE.txt"
+          Copy-Item packaging/windows/README.txt $name
+          Compress-Archive -Path $name -DestinationPath "dist/$name.zip"
+          Get-ChildItem dist
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows
+          path: dist/*
+
+  publish:
+    needs: [check, flatpak, windows]
+    runs-on: ubuntu-24.04
+    env:
+      VERSION: ${{ needs.check.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
 
       - name: Publish release
         uses: softprops/action-gh-release@v2

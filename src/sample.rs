@@ -89,5 +89,24 @@ pub fn sample_data(today: NaiveDate) -> AppData {
     flows[7].account_id = Some(2); // car insurance comes out of savings
     // Medical comes out of savings too.
     flows.push(CashFlow { account_id: Some(2), ..flow(Expense, "Doctor & pharmacy", "Health", 60.0, Monthly, on(14), 4.0, false) });
-    AppData { flows, accounts, holdings, buckets, settings: Settings::default(), ..Default::default() }
+    let mut accounts = accounts;
+    accounts[0].purpose = "Everyday spending".into();
+    accounts[0].minimum_balance = 1500.0;
+    accounts[1].purpose = "Emergency fund".into();
+    accounts[1].minimum_balance = 1000.0;
+    let goal = |id, name: &str, cost, priority, target_date| Goal {
+        id,
+        name: name.into(),
+        cost,
+        target_date,
+        priority,
+        notes: String::new(),
+        purchased_on: None,
+    };
+    let goals = vec![
+        goal(1, "New laptop", 1800.0, 1, None),
+        goal(2, "Family vacation", 4500.0, 2, add_months_clamped(today, 8, 1)),
+        goal(3, "Kitchen remodel", 15000.0, 3, None),
+    ];
+    AppData { flows, accounts, holdings, buckets, goals, settings: Settings::default(), ..Default::default() }
 }
