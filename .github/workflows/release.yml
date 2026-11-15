@@ -1,0 +1,47 @@
+# Builds the flatpak and publishes a GitHub release whenever a v* tag is pushed.
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  flatpak:
+    runs-on: ubuntu-24.04
+    container:
+      # Fedora image with flatpak, flatpak-builder and the GNOME 49 SDK preinstalled.
+      image: ghcr.io/flathub-infra/flatpak-github-actions:gnome-49
+      options: --privileged
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install cargo (for vendoring crates only)
+        run: dnf install -y cargo git
+
+      - name: Build flatpak bundle
+        run: ./build-flatpak.sh
+
+      - name: Source archive
+        run: |
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          VERSION="${GITHUB_REF_NAME#v}"
+          git archive --format=tar.gz --prefix="PenguinFin-${VERSION}/" \
+            -o "dist/penguinfin-${VERSION}-source.tar.gz" HEAD
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: penguinfin-flatpak
+          path: dist/*
+
+      - name: Publish release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          name: PenguinFin ${{ github.ref_name }}
+          body_path: .github/release-notes.md
+          files: dist/*
