@@ -112,11 +112,28 @@ builds `PENGUINFIN_SLOW=1` delays background work so loading states can be inspe
 fetches every indicator from the command line.
 `cargo run --example seed -- /path/to/file.db` fills one with sample data.
 
-Build the flatpak bundle yourself (needs `sudo apt install flatpak flatpak-builder` and Rust from rustup.rs):
+Build the flatpak bundle (needs `sudo apt install flatpak flatpak-builder` and Rust from rustup.rs):
 
 ```bash
-./build-flatpak.sh      # outputs dist/penguinfin.flatpak
+./build-flatpak.sh            # fast: incremental, no LTO
+./build-flatpak.sh --release  # incremental with the release profile (thin LTO)
+./build-flatpak.sh --clean    # from scratch in flatpak-builder (what the GitHub release uses)
 ```
+
+Typical times on a 4-core machine:
+
+| | First build | After a code change | No change |
+|---|---|---|---|
+| default (fast) | ~3.5 min | ~15 s | ~8 s |
+| `--release` | ~3.5 min | ~40 s | — |
+| `--clean` | ~3.5 min | ~3.5 min | ~3.5 min |
+
+The fast modes compile with cargo inside the same GNOME SDK flatpak-builder uses, but keep cargo's
+output in `target/flatpak/` (and link with `mold`), then let flatpak-builder package the binary.
+Crates are re-vendored only when `Cargo.lock` changes, and Flathub is only contacted if a runtime is
+missing. State lives in `.flatpak-dev/`; delete it (and `target/flatpak/`) to start over.
+
+For quick UI work you can skip flatpak entirely: `cargo run` builds a debug binary and rebuilds in seconds.
 
 ## Layout
 

@@ -42,9 +42,16 @@ modules:
         CARGO_NET_OFFLINE: 'true'
         LIBRARY_PATH: /app/lib
     build-commands:
-      - mkdir -p cargo-home && cp flatpak/cargo-vendor-config.toml cargo-home/config.toml
-      - cargo --offline build --release --locked
-      - install -Dm755 target/release/penguinfin /app/bin/penguinfin
+      # build-flatpak.sh (without --clean) compiles incrementally inside the same SDK and
+      # leaves the binary in .flatpak-prebuilt/. Otherwise build from source here.
+      - |
+        if [ -x .flatpak-prebuilt/penguinfin ]; then
+          install -Dm755 .flatpak-prebuilt/penguinfin /app/bin/penguinfin
+        else
+          mkdir -p cargo-home && cp flatpak/cargo-vendor-config.toml cargo-home/config.toml
+          cargo --offline build --release --locked
+          install -Dm755 target/release/penguinfin /app/bin/penguinfin
+        fi
       - install -Dm644 flatpak/io.github.tobeoffline64.PenguinFin.desktop /app/share/applications/io.github.tobeoffline64.PenguinFin.desktop
       - install -Dm644 flatpak/io.github.tobeoffline64.PenguinFin.metainfo.xml /app/share/metainfo/io.github.tobeoffline64.PenguinFin.metainfo.xml
       - install -Dm644 flatpak/io.github.tobeoffline64.PenguinFin.svg /app/share/icons/hicolor/scalable/apps/io.github.tobeoffline64.PenguinFin.svg
@@ -54,6 +61,7 @@ modules:
         skip:
           - target
           - node_modules
+          - .flatpak-dev
           - .flatpak-builder
           - build-dir
           - repo

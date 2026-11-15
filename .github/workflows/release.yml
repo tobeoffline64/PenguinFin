@@ -58,7 +58,7 @@ jobs:
           sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
 
       - name: Build flatpak bundle
-        run: ./build-flatpak.sh
+        run: ./build-flatpak.sh --clean
 
       - name: Source archive
         run: |
