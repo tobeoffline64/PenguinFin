@@ -40,24 +40,23 @@ jobs:
     needs: check
     if: needs.check.outputs.release == 'true'
     runs-on: ubuntu-24.04
-    container:
-      # Fedora image with flatpak and flatpak-builder preinstalled.
-      image: ghcr.io/flathub-infra/flatpak-github-actions:gnome-49
-      options: --privileged
     env:
       VERSION: ${{ needs.check.outputs.version }}
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install cargo (for vendoring crates only)
-        run: dnf install -y cargo git
+      - name: Install flatpak tooling
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y flatpak flatpak-builder
+          # Ubuntu 24.04 blocks unprivileged user namespaces, which bubblewrap needs.
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
 
       - name: Build flatpak bundle
         run: ./build-flatpak.sh
 
       - name: Source archive
         run: |
-          git config --global --add safe.directory "$GITHUB_WORKSPACE"
           git archive --format=tar.gz --prefix="PenguinFin-${VERSION}/" \
             -o "dist/penguinfin-${VERSION}-source.tar.gz" HEAD
 
