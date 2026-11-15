@@ -7,7 +7,7 @@
 //! the baselines is not counted as affordable yet. Interest that the spent money would have
 //! earned is ignored (it's small next to the purchase itself).
 
-use crate::model::{AppData, last_day_of_month};
+use crate::model::{AccountGroup, AppData, last_day_of_month};
 use crate::projection::project;
 use chrono::{Datelike, NaiveDate};
 
@@ -38,7 +38,9 @@ pub struct GoalsPlan {
     pub cash_now: f64,
     /// Sum of minimum balances kept in checking and savings.
     pub baseline: f64,
-    /// Spendable today: cash_now − baseline (may be negative).
+    /// Money in checking/savings buckets today (also reserved, not spendable).
+    pub buckets_now: f64,
+    /// Spendable today: cash_now − baseline − buckets_now (may be negative).
     pub spendable_now: f64,
     /// Plans for open goals, in priority order.
     pub plans: Vec<GoalPlan>,
@@ -61,15 +63,29 @@ fn months_between(from: NaiveDate, to: NaiveDate) -> u32 {
 pub fn plan_goals(data: &AppData, today: NaiveDate, years: u32) -> GoalsPlan {
     let years = years.max(1);
     let baseline = data.cash_baseline();
-    let cash_now = data.group_total(crate::model::AccountGroup::Cash);
+    let cash_now = data.group_total(AccountGroup::Cash);
+    let buckets_now = data.cash_buckets_total();
     let proj = project(data, today, years);
+    // Positions (in the projection) of buckets that live in checking/savings accounts.
+    let cash_bucket_pos: Vec<usize> = proj
+        .bucket_ids
+        .iter()
+        .enumerate()
+        .filter(|(_, id)| {
+            data.bucket(**id).is_some_and(|b| {
+                data.accounts.iter().any(|a| a.id == b.account_id && a.kind.group() == AccountGroup::Cash)
+            })
+        })
+        .map(|(i, _)| i)
+        .collect();
 
     // Index 0 = today; index k = the last day of projected month k-1 (its balance is in).
     let mut dates = vec![today];
-    let mut spendable = vec![cash_now - baseline];
+    let mut spendable = vec![cash_now - baseline - buckets_now];
     for m in &proj.months {
         dates.push(m.month.with_day(last_day_of_month(m.month)).unwrap_or(m.month));
-        spendable.push(m.cash - baseline);
+        let reserved_in_buckets: f64 = cash_bucket_pos.iter().map(|&i| m.buckets[i]).sum();
+        spendable.push(m.cash - baseline - reserved_in_buckets);
     }
     let n = spendable.len();
     // suffix_min[k] = lowest spendable cash from month k to the end of the horizon.
@@ -119,7 +135,15 @@ pub fn plan_goals(data: &AppData, today: NaiveDate, years: u32) -> GoalsPlan {
         })
         .collect();
 
-    GoalsPlan { cash_now, baseline, spendable_now: cash_now - baseline, plans, spendable_after_goals, horizon_years: years }
+    GoalsPlan {
+        cash_now,
+        baseline,
+        buckets_now,
+        spendable_now: cash_now - baseline - buckets_now,
+        plans,
+        spendable_after_goals,
+        horizon_years: years,
+    }
 }
 
 #[cfg(test)]
@@ -164,6 +188,8 @@ mod tests {
             annual_change_pct: 0.0,
             autopay: false,
             notes: String::new(),
+            account_id: None,
+            bucket_id: None,
         }
     }
 
@@ -238,6 +264,27 @@ mod tests {
             }
             other => panic!("expected behind, got {other:?}"),
         }
+    }
+
+    #[test]
+    fn bucket_money_is_reserved() {
+        let mut data = base();
+        // $1,000 of checking set aside as "Rainy day", topped up $200/mo.
+        data.buckets.push(Bucket {
+            id: 7,
+            account_id: 1,
+            name: "Rainy day".into(),
+            balance: 1000.0,
+            monthly_add: 200.0,
+            target: None,
+            notes: String::new(),
+        });
+        data.goals.push(goal(1, 2500.0, 1, None));
+        let p = plan_goals(&data, d(2026, 1, 1), 2);
+        assert_eq!(p.buckets_now, 1000.0);
+        assert_eq!(p.spendable_now, 2000.0); // 5000 - 2000 minimum - 1000 bucket
+        // Spendable grows 1000 - 200 = 800/mo: end of Jan 2800 ≥ 2500.
+        assert_eq!(p.plan_for(1).unwrap().affordable_on, Some(d(2026, 1, 31)));
     }
 
     #[test]

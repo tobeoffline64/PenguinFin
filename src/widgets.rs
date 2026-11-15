@@ -281,7 +281,8 @@ pub fn LineChart(series: Vec<Series>, labels: Vec<String>, #[props(into)] curren
                     }
                 }
                 for (i, l) in labels.iter().enumerate() {
-                    if i % label_every == 0 || i == n - 1 {
+                    // Regular labels, plus the last one (skipping a regular label too close to it).
+                    if (i % label_every == 0 && n - 1 - i >= label_every.div_ceil(2)) || i == n - 1 {
                         text {
                             x: "{x(i)}", y: "{h - 8.0}", text_anchor: "middle",
                             font_size: "11", fill: "var(--muted-foreground)",
@@ -315,6 +316,147 @@ pub fn LineChart(series: Vec<Series>, labels: Vec<String>, #[props(into)] curren
                         fill: "transparent",
                         onmouseenter: move |_| hover.set(Some(i)),
                     }
+                }
+            }
+        }
+    }
+}
+
+/// Stacked-area chart: `layers` (non-negative) are stacked bottom-up; `total` is drawn as a
+/// line on top (it differs from the stack when layers are clamped, e.g. over-allocation);
+/// `reference` draws a dashed horizontal line (e.g. a minimum balance).
+#[component]
+pub fn StackedChart(
+    layers: Vec<Series>,
+    total: Series,
+    reference: Option<(String, f64)>,
+    labels: Vec<String>,
+    #[props(into)] currency: String,
+) -> Element {
+    let mut hover = use_signal(|| None::<usize>);
+    let n = labels.len();
+    if n < 2 {
+        return rsx! { div { class: "text-sm text-muted-foreground p-6", "Not enough data to chart yet." } };
+    }
+    let (w, h) = (900.0_f64, 300.0_f64);
+    let (pl, pr, pt, pb) = (64.0, 16.0, 12.0, 28.0);
+    let (pw, ph) = (w - pl - pr, h - pt - pb);
+
+    // Cumulative tops of each layer.
+    let mut tops: Vec<Vec<f64>> = Vec::new();
+    let mut acc = vec![0.0; n];
+    for l in &layers {
+        for (i, a) in acc.iter_mut().enumerate() {
+            *a += l.values.get(i).copied().unwrap_or(0.0).max(0.0);
+        }
+        tops.push(acc.clone());
+    }
+    let ref_v = reference.as_ref().map(|r| r.1).unwrap_or(0.0);
+    let mut lo = total.values.iter().copied().fold(0.0_f64, f64::min);
+    let mut hi = acc.iter().chain(total.values.iter()).copied().fold(ref_v, f64::max);
+    if (hi - lo).abs() < 1e-9 {
+        hi += 1.0;
+    }
+    let raw = (hi - lo) / 4.0;
+    let mag = 10f64.powf(raw.log10().floor());
+    let step = [1.0, 2.0, 2.5, 5.0, 10.0].iter().map(|m| m * mag).find(|s| *s >= raw).unwrap_or(raw);
+    lo = (lo / step).floor() * step;
+    hi = (hi / step).ceil() * step;
+    let x = move |i: usize| pl + pw * i as f64 / (n - 1) as f64;
+    let y = move |v: f64| pt + ph * (1.0 - (v - lo) / (hi - lo));
+    let mut ticks = Vec::new();
+    let mut t = lo;
+    while t <= hi + step * 0.01 {
+        ticks.push(t);
+        t += step;
+    }
+    let label_every = n.div_ceil(8).max(1);
+    let col_w = pw / (n - 1) as f64;
+
+    let areas: Vec<(String, String)> = layers
+        .iter()
+        .enumerate()
+        .map(|(li, l)| {
+            let top = &tops[li];
+            let mut d = String::new();
+            for (i, v) in top.iter().enumerate() {
+                d += &format!("{}{:.1},{:.1}", if i == 0 { "M" } else { "L" }, x(i), y(*v));
+            }
+            for i in (0..n).rev() {
+                let bottom = if li == 0 { 0.0 } else { tops[li - 1][i] };
+                d += &format!("L{:.1},{:.1}", x(i), y(bottom));
+            }
+            d.push('Z');
+            (d, l.color.clone())
+        })
+        .collect();
+    let total_path: String = total
+        .values
+        .iter()
+        .enumerate()
+        .map(|(i, v)| format!("{}{:.1},{:.1}", if i == 0 { "M" } else { "L" }, x(i), y(*v)))
+        .collect();
+    let hovered = hover();
+
+    rsx! {
+        div { class: "flex flex-col gap-2",
+            div { class: "flex flex-wrap gap-x-4 gap-y-1 text-xs",
+                for s in layers.iter().rev() {
+                    div { class: "flex items-center gap-1.5",
+                        span { class: "inline-block h-2.5 w-2.5 rounded-sm", style: "background: {s.color}" }
+                        span { class: "text-muted-foreground", "{s.name}" }
+                        if let Some(i) = hovered {
+                            span { class: "font-medium tabular-nums", {money(s.values.get(i).copied().unwrap_or(0.0), &currency)} }
+                        }
+                    }
+                }
+                div { class: "flex items-center gap-1.5",
+                    span { class: "inline-block h-0.5 w-3", style: "background: {total.color}" }
+                    span { class: "text-muted-foreground", "{total.name}" }
+                    if let Some(i) = hovered {
+                        span { class: "font-medium tabular-nums", {money(total.values.get(i).copied().unwrap_or(0.0), &currency)} }
+                    }
+                }
+                if let Some((name, v)) = &reference {
+                    div { class: "flex items-center gap-1.5",
+                        span { class: "inline-block w-3 border-t-2 border-dashed border-destructive" }
+                        span { class: "text-muted-foreground", "{name} {money(*v, &currency)}" }
+                    }
+                }
+                if let Some(i) = hovered {
+                    span { class: "ml-auto font-medium", "{labels[i]}" }
+                }
+            }
+            svg {
+                class: "w-full h-auto select-none",
+                view_box: "0 0 {w} {h}",
+                onmouseleave: move |_| hover.set(None),
+                for t in ticks.iter() {
+                    line { x1: "{pl}", x2: "{w - pr}", y1: "{y(*t)}", y2: "{y(*t)}",
+                        stroke: if t.abs() < 1e-9 { "var(--muted-foreground)" } else { "var(--chart-grid)" }, stroke_width: "1" }
+                    text { x: "{pl - 8.0}", y: "{y(*t) + 4.0}", text_anchor: "end", font_size: "11", fill: "var(--muted-foreground)",
+                        {money_short(*t, &currency)} }
+                }
+                for (i, l) in labels.iter().enumerate() {
+                    // Regular labels, plus the last one (skipping a regular label too close to it).
+                    if (i % label_every == 0 && n - 1 - i >= label_every.div_ceil(2)) || i == n - 1 {
+                        text { x: "{x(i)}", y: "{h - 8.0}", text_anchor: "middle", font_size: "11", fill: "var(--muted-foreground)", "{l}" }
+                    }
+                }
+                for (d, color) in areas.iter() {
+                    path { d: "{d}", fill: "{color}", fill_opacity: "0.55", stroke: "{color}", stroke_width: "1" }
+                }
+                path { d: "{total_path}", fill: "none", stroke: "{total.color}", stroke_width: "2.5", stroke_linejoin: "round" }
+                if let Some((_, v)) = &reference {
+                    line { x1: "{pl}", x2: "{w - pr}", y1: "{y(*v)}", y2: "{y(*v)}",
+                        stroke: "var(--destructive)", stroke_width: "1.5", stroke_dasharray: "6 4" }
+                }
+                if let Some(i) = hovered {
+                    line { x1: "{x(i)}", x2: "{x(i)}", y1: "{pt}", y2: "{pt + ph}", stroke: "var(--muted-foreground)", stroke_dasharray: "4 4" }
+                }
+                for i in 0..n {
+                    rect { x: "{x(i) - col_w / 2.0}", y: "{pt}", width: "{col_w}", height: "{ph}", fill: "transparent",
+                        onmouseenter: move |_| hover.set(Some(i)) }
                 }
             }
         }

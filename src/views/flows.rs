@@ -24,6 +24,8 @@ struct FlowForm {
     change: String,
     autopay: bool,
     notes: String,
+    /// "" = default account, "a:<id>" = account, "b:<id>" = bucket.
+    source: String,
 }
 
 impl FlowForm {
@@ -44,6 +46,7 @@ impl FlowForm {
             },
             autopay: false,
             notes: String::new(),
+            source: String::new(),
         }
     }
 
@@ -60,6 +63,11 @@ impl FlowForm {
             change: num_str(f.annual_change_pct),
             autopay: f.autopay,
             notes: f.notes.clone(),
+            source: match (f.bucket_id, f.account_id) {
+                (Some(b), _) => format!("b:{b}"),
+                (None, Some(a)) => format!("a:{a}"),
+                _ => String::new(),
+            },
         }
     }
 
@@ -90,6 +98,8 @@ impl FlowForm {
             annual_change_pct: parse_num(&self.change).unwrap_or(0.0),
             autopay: self.autopay,
             notes: self.notes.trim().to_string(),
+            account_id: self.source.strip_prefix("a:").and_then(|v| v.parse().ok()),
+            bucket_id: if kind.is_outflow() { self.source.strip_prefix("b:").and_then(|v| v.parse().ok()) } else { None },
         })
     }
 }
@@ -191,6 +201,7 @@ pub fn FlowsPage(kind: FlowKind) -> Element {
                                         FlowRow {
                                             key: "{f.id}",
                                             flow: f.clone(),
+                                            source: data.flow_source_label(&f),
                                             sym: sym.clone(),
                                             selected: editing_id() == f.id,
                                             on_edit: move |f: CashFlow| { error.set(None); form.set(FlowForm::from_flow(&f)); generation += 1; },
@@ -230,6 +241,8 @@ fn FlowFormCard(
     let editing = form.read().id != 0;
     let freq_options: Vec<(String, String)> =
         Frequency::ALL.iter().map(|f| (f.key().to_string(), f.label().to_string())).collect();
+    let source_options = source_options(&store.data.read(), kind);
+    let source_label = if kind == FlowKind::Income { "Deposited to" } else { "Paid from" };
 
     let save = move |_| {
         let res = form.read().to_flow(kind);
@@ -266,6 +279,17 @@ fn FlowFormCard(
                             value: form.read().frequency.key().to_string(),
                             options: freq_options.clone(),
                             onchange: move |v: String| if let Some(f) = Frequency::from_key(&v) { form.write().frequency = f },
+                        }
+                    }
+                }
+                if source_options.len() > 1 {
+                    Field { label: source_label,
+                        hint: if kind == FlowKind::Income { "Which account this money lands in." }
+                              else { "Pick a bucket to pay it from money set aside for it." },
+                        NativeSelect {
+                            value: form.read().source.clone(),
+                            options: source_options.clone(),
+                            onchange: move |v: String| form.write().source = v,
                         }
                     }
                 }
@@ -341,7 +365,7 @@ fn FlowFormCard(
 }
 
 #[component]
-fn FlowRow(flow: CashFlow, sym: String, selected: bool, on_edit: EventHandler<CashFlow>, on_delete: EventHandler<i64>) -> Element {
+fn FlowRow(flow: CashFlow, source: String, sym: String, selected: bool, on_edit: EventHandler<CashFlow>, on_delete: EventHandler<i64>) -> Element {
     let today = today();
     let next = flow.next_due(today);
     let ended = flow.end_date.is_some_and(|e| e < today);
@@ -356,6 +380,10 @@ fn FlowRow(flow: CashFlow, sym: String, selected: bool, on_edit: EventHandler<Ca
                     span { class: "text-xs text-muted-foreground",
                         if flow.category.is_empty() { "Uncategorized" } else { "{flow.category}" }
                         if flow.annual_change_pct != 0.0 { " · {num_str(flow.annual_change_pct)}%/yr" }
+                    }
+                    if !source.is_empty() {
+                        span { class: "text-xs text-muted-foreground",
+                            if flow.kind == FlowKind::Income { "into {source}" } else { "from {source}" } }
                     }
                 }
             }
@@ -395,4 +423,23 @@ fn FlowRow(flow: CashFlow, sym: String, selected: bool, on_edit: EventHandler<Ca
             }
         }
     }
+}
+
+/// Choices for where a flow's money goes to / comes from: default, each account, and
+/// (for bills/expenses) each bucket as "Account › Bucket".
+fn source_options(data: &penguinfin::model::AppData, kind: FlowKind) -> Vec<(String, String)> {
+    let default = match data.primary_cash_account() {
+        Some(a) => format!("Default ({})", a.name),
+        None => "Default".to_string(),
+    };
+    let mut opts = vec![(String::new(), default)];
+    for a in &data.accounts {
+        opts.push((format!("a:{}", a.id), a.name.clone()));
+        if kind.is_outflow() {
+            for b in data.buckets_for(a.id) {
+                opts.push((format!("b:{}", b.id), format!("{} › {}", a.name, b.name)));
+            }
+        }
+    }
+    opts
 }

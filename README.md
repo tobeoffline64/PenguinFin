@@ -23,6 +23,10 @@ Built in **Rust** with **[Dioxus](https://dioxuslabs.com) desktop** and componen
   projection; how much more to save per month to hit a date; and spendable cash over time after the purchases.
 - **Account purposes & minimum balances**: tag accounts (Medical, Food, Emergency fund…) and set an operating
   baseline; accounts below it are flagged and goals never spend it.
+- **Buckets & money routing**: split accounts into buckets (e.g. Rainy day money) with monthly top-ups and
+  targets; choose which account or bucket pays each bill/expense and where income is deposited. Projections
+  simulate every account and bucket, and the *Accounts & buckets* chart stacks an account's buckets and
+  unallocated money over time with its minimum balance and run-dry warnings.
 - **Projections**: 1–80 years, nominal or inflation-adjusted ("today's dollars"), milestone cards,
   a year-by-year table, a warning when cash would run short, and **what-if** scenarios (extra income,
   extra spending, extra investing, lower/higher returns) that are not saved.

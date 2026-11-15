@@ -26,7 +26,7 @@ pub fn default_db_path() -> PathBuf {
     data_dir().join("penguinfin.db")
 }
 
-const SCHEMA_VERSION: i64 = 3;
+const SCHEMA_VERSION: i64 = 4;
 
 pub struct Db {
     conn: Connection,
@@ -147,7 +147,27 @@ impl Db {
                 )
                 .map_err(e)?;
         }
-        const { assert!(SCHEMA_VERSION == 3, "add a migration step above") };
+        if version < 4 {
+            self.conn
+                .execute_batch(
+                    "BEGIN;
+                CREATE TABLE IF NOT EXISTS buckets (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    account_id INTEGER NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+                    name TEXT NOT NULL,
+                    balance REAL NOT NULL DEFAULT 0,
+                    monthly_add REAL NOT NULL DEFAULT 0,
+                    target REAL,
+                    notes TEXT NOT NULL DEFAULT ''
+                );
+                ALTER TABLE cash_flows ADD COLUMN account_id INTEGER REFERENCES accounts(id) ON DELETE SET NULL;
+                ALTER TABLE cash_flows ADD COLUMN bucket_id INTEGER REFERENCES buckets(id) ON DELETE SET NULL;
+                PRAGMA user_version = 4;
+                COMMIT;",
+                )
+                .map_err(e)?;
+        }
+        const { assert!(SCHEMA_VERSION == 4, "add a migration step above") };
         Ok(())
     }
 
@@ -159,6 +179,7 @@ impl Db {
             accounts: self.accounts()?,
             holdings: self.holdings()?,
             goals: self.goals()?,
+            buckets: self.buckets()?,
             settings: self.settings()?,
             fred: self.fred_config()?,
             market: self.market_data()?,
@@ -247,6 +268,8 @@ impl Db {
             annual_change_pct: r.get("annual_change_pct")?,
             autopay: r.get::<_, i64>("autopay")? != 0,
             notes: r.get("notes")?,
+            account_id: r.get("account_id")?,
+            bucket_id: r.get("bucket_id")?,
         })
     }
 
@@ -334,27 +357,8 @@ impl Db {
             self.conn
                 .execute(
                     "INSERT INTO cash_flows (kind, name, category, amount, frequency, start_date, end_date,
-                     annual_change_pct, autopay, notes) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10)",
-                    params![
-                        f.kind.key(),
-                        f.name,
-                        f.category,
-                        f.amount,
-                        f.frequency.key(),
-                        date_to_sql(f.start_date),
-                        end,
-                        f.annual_change_pct,
-                        f.autopay as i64,
-                        f.notes
-                    ],
-                )
-                .map_err(e)?;
-            Ok(self.conn.last_insert_rowid())
-        } else {
-            self.conn
-                .execute(
-                    "UPDATE cash_flows SET kind=?1, name=?2, category=?3, amount=?4, frequency=?5, start_date=?6,
-                     end_date=?7, annual_change_pct=?8, autopay=?9, notes=?10 WHERE id=?11",
+                     annual_change_pct, autopay, notes, account_id, bucket_id)
+                     VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12)",
                     params![
                         f.kind.key(),
                         f.name,
@@ -366,6 +370,31 @@ impl Db {
                         f.annual_change_pct,
                         f.autopay as i64,
                         f.notes,
+                        f.account_id,
+                        f.bucket_id
+                    ],
+                )
+                .map_err(e)?;
+            Ok(self.conn.last_insert_rowid())
+        } else {
+            self.conn
+                .execute(
+                    "UPDATE cash_flows SET kind=?1, name=?2, category=?3, amount=?4, frequency=?5, start_date=?6,
+                     end_date=?7, annual_change_pct=?8, autopay=?9, notes=?10, account_id=?11, bucket_id=?12
+                     WHERE id=?13",
+                    params![
+                        f.kind.key(),
+                        f.name,
+                        f.category,
+                        f.amount,
+                        f.frequency.key(),
+                        date_to_sql(f.start_date),
+                        end,
+                        f.annual_change_pct,
+                        f.autopay as i64,
+                        f.notes,
+                        f.account_id,
+                        f.bucket_id,
                         f.id
                     ],
                 )
@@ -454,6 +483,50 @@ impl Db {
 
     pub fn delete_holding(&self, id: i64) -> Result<()> {
         self.conn.execute("DELETE FROM holdings WHERE id=?1", [id]).map_err(e)?;
+        Ok(())
+    }
+
+    pub fn buckets(&self) -> Result<Vec<Bucket>> {
+        let mut st = self.conn.prepare("SELECT * FROM buckets ORDER BY account_id, id").map_err(e)?;
+        let rows = st
+            .query_map([], |r| {
+                Ok(Bucket {
+                    id: r.get("id")?,
+                    account_id: r.get("account_id")?,
+                    name: r.get("name")?,
+                    balance: r.get("balance")?,
+                    monthly_add: r.get("monthly_add")?,
+                    target: r.get("target")?,
+                    notes: r.get("notes")?,
+                })
+            })
+            .map_err(e)?;
+        rows.collect::<rusqlite::Result<Vec<_>>>().map_err(e)
+    }
+
+    pub fn save_bucket(&self, b: &Bucket) -> Result<i64> {
+        if b.id == 0 {
+            self.conn
+                .execute(
+                    "INSERT INTO buckets (account_id, name, balance, monthly_add, target, notes) VALUES (?1,?2,?3,?4,?5,?6)",
+                    params![b.account_id, b.name, b.balance, b.monthly_add, b.target, b.notes],
+                )
+                .map_err(e)?;
+            Ok(self.conn.last_insert_rowid())
+        } else {
+            self.conn
+                .execute(
+                    "UPDATE buckets SET account_id=?1, name=?2, balance=?3, monthly_add=?4, target=?5, notes=?6 WHERE id=?7",
+                    params![b.account_id, b.name, b.balance, b.monthly_add, b.target, b.notes, b.id],
+                )
+                .map_err(e)?;
+            Ok(b.id)
+        }
+    }
+
+    /// Deleting a bucket moves bills paid from it back to its account.
+    pub fn delete_bucket(&self, id: i64) -> Result<()> {
+        self.conn.execute("DELETE FROM buckets WHERE id=?1", [id]).map_err(e)?;
         Ok(())
     }
 
@@ -551,7 +624,10 @@ impl Db {
     /// Replace all data (used by JSON import and sample data).
     pub fn replace_all(&mut self, data: &AppData) -> Result<()> {
         let tx = self.conn.transaction().map_err(e)?;
-        tx.execute_batch("DELETE FROM holdings; DELETE FROM accounts; DELETE FROM cash_flows; DELETE FROM goals;").map_err(e)?;
+        tx.execute_batch(
+            "DELETE FROM cash_flows; DELETE FROM buckets; DELETE FROM holdings; DELETE FROM accounts; DELETE FROM goals;",
+        )
+        .map_err(e)?;
         tx.commit().map_err(e)?;
         // Accounts get new ids; remap holdings onto them.
         let mut id_map = std::collections::HashMap::new();
@@ -564,8 +640,21 @@ impl Db {
                 self.save_holding(&Holding { id: 0, account_id: acc, ..h.clone() })?;
             }
         }
+        // Buckets and flows reference accounts/buckets by id; map them to the new ids.
+        let mut bucket_map = std::collections::HashMap::new();
+        for b in &data.buckets {
+            if let Some(&acc) = id_map.get(&b.account_id) {
+                let new_id = self.save_bucket(&Bucket { id: 0, account_id: acc, ..b.clone() })?;
+                bucket_map.insert(b.id, new_id);
+            }
+        }
         for f in &data.flows {
-            self.save_flow(&CashFlow { id: 0, ..f.clone() })?;
+            self.save_flow(&CashFlow {
+                id: 0,
+                account_id: f.account_id.and_then(|a| id_map.get(&a).copied()),
+                bucket_id: f.bucket_id.and_then(|b| bucket_map.get(&b).copied()),
+                ..f.clone()
+            })?;
         }
         for g in &data.goals {
             self.save_goal(&Goal { id: 0, ..g.clone() })?;
@@ -715,6 +804,32 @@ mod tests {
         let old: Account = serde_json::from_str(r#"{"id":1,"name":"x","kind":"Checking","balance":1.0,"annual_return_pct":0.0,
             "monthly_contribution":0.0,"contribution_from_cash":false,"employer_match_monthly":0.0,"notes":""}"#).unwrap();
         assert_eq!((old.purpose.as_str(), old.minimum_balance), ("", 0.0));
+    }
+
+    #[test]
+    fn buckets_and_flow_links_survive_restore_and_deletes() {
+        let mut db = Db::open_in_memory().unwrap();
+        let today = NaiveDate::from_ymd_opt(2026, 11, 15).unwrap();
+        db.replace_all(&crate::sample::sample_data(today)).unwrap();
+        let data = db.load().unwrap();
+        assert!(!data.buckets.is_empty(), "sample has buckets");
+        let linked = data.flows.iter().find(|f| f.bucket_id.is_some()).unwrap().clone();
+        let bucket = data.bucket(linked.bucket_id.unwrap()).unwrap().clone();
+
+        // Restore into a fresh DB: ids change, links still point to the same names.
+        let mut other = Db::open_in_memory().unwrap();
+        other.replace_all(&data).unwrap();
+        let back = other.load().unwrap();
+        let f = back.flows.iter().find(|f| f.name == linked.name).unwrap();
+        let b = back.bucket(f.bucket_id.unwrap()).unwrap();
+        assert_eq!(b.name, bucket.name);
+        assert_eq!(back.account_name(b.account_id), data.account_name(bucket.account_id));
+
+        // Deleting the bucket unlinks the bill; deleting the account removes its buckets.
+        db.delete_bucket(bucket.id).unwrap();
+        assert_eq!(db.flows().unwrap().iter().find(|x| x.id == linked.id).unwrap().bucket_id, None);
+        db.delete_account(bucket.account_id).unwrap();
+        assert!(db.buckets().unwrap().iter().all(|b| b.account_id != bucket.account_id));
     }
 
     #[test]

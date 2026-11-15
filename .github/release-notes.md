@@ -30,6 +30,11 @@ curl -fL -o /tmp/penguinfin.flatpak https://github.com/tobeoffline64/penguinfin/
 flatpak install --user -y --reinstall /tmp/penguinfin.flatpak
 ```
 
+## New in 1.5.0
+- **Buckets.** Split any account into named portions such as *Rainy day money* or *Car repairs*: an amount set aside now, an optional monthly top-up and an optional target. Unallocated money is shown per account. Bucket money is reserved, so savings goals won't spend it.
+- **Choose where money comes from and goes.** Each bill and expense has a **Paid from** setting (any account, or a bucket inside one) and each income a **Deposited to** setting. Accounts list what they pay and receive each month.
+- **Accounts & buckets chart** (Projections): pick an account to see its balance stacked by bucket and unallocated money over 2 years, 5 years or the whole projection, with its minimum balance and warnings when a bucket runs dry, the account drops below its minimum, or buckets exceed the balance.
+
 ## New in 1.4.0
 - **Savings goals.** List things you want to buy with their price, an optional "want it by" date, and a priority order. PenguinFin shows when each becomes affordable from checking and savings without dipping into your minimum balances, now or later in the projection, plus how much more to save per month if a date is too soon, and a chart of spendable cash after each purchase.
 - **Account purposes and minimum balances.** Give any account a purpose (Medical, Food, Emergency fund…) and a minimum balance to keep. Accounts below their minimum are flagged; goals never spend those baselines.

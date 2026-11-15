@@ -17,6 +17,10 @@ pub struct MonthPoint {
     pub retirement: f64,
     /// Inflation discount factor for this month (divide by it to get today's dollars).
     pub inflation_factor: f64,
+    /// End-of-month balance of each account, in `Projection::account_ids` order.
+    pub accounts: Vec<f64>,
+    /// End-of-month balance of each bucket, in `Projection::bucket_ids` order.
+    pub buckets: Vec<f64>,
 }
 
 impl MonthPoint {
@@ -51,6 +55,10 @@ pub struct Projection {
     pub months: Vec<MonthPoint>,
     /// First month where total cash goes below zero.
     pub cash_shortfall: Option<NaiveDate>,
+    pub account_ids: Vec<i64>,
+    pub bucket_ids: Vec<i64>,
+    /// First month each bucket couldn't cover the bills paid from it.
+    pub bucket_dry: Vec<(i64, NaiveDate)>,
 }
 
 impl Projection {
@@ -98,8 +106,12 @@ fn monthly_rate(annual_pct: f64) -> f64 {
 /// Rules:
 /// * Each month, every account grows by its own expected return, then receives its
 ///   contributions (yours + employer match).
-/// * Income minus expenses, bills and contributions "from cash" lands in the primary
-///   cash account (first checking account, else first savings, else a virtual one).
+/// * Each income/bill/expense goes into or out of its own account (or its bucket's
+///   account); flows without one use the primary cash account (first checking, else first
+///   savings, else a virtual one). Contributions "from cash" leave the primary account.
+/// * Buckets are earmarked parts of an account: each month they're topped up (up to their
+///   target) from the account's unallocated money, then pay the bills linked to them. If a
+///   bucket runs out, the rest is paid from the account's unallocated money.
 /// * Cash-flow amounts change by their own `annual_change_pct` once per year elapsed.
 /// * In the current month only occurrences from `today` onward are counted.
 pub fn project(data: &AppData, today: NaiveDate, years: u32) -> Projection {
@@ -115,8 +127,31 @@ pub fn project(data: &AppData, today: NaiveDate, years: u32) -> Projection {
         .position(|a| a.kind == AccountKind::Checking)
         .or_else(|| data.accounts.iter().position(|a| a.kind.group() == AccountGroup::Cash));
     let mut virtual_cash = 0.0;
+    let account_index = |id: i64| data.accounts.iter().position(|a| a.id == id);
+    // Buckets whose account exists.
+    let buckets: Vec<(usize, &crate::model::Bucket)> =
+        data.buckets.iter().filter_map(|b| account_index(b.account_id).map(|i| (i, b))).collect();
+    let mut bucket_bal: Vec<f64> = buckets.iter().map(|(_, b)| b.balance.max(0.0)).collect();
+    let bucket_pos = |id: i64| buckets.iter().position(|(_, b)| b.id == id);
+    // Where each flow lands: (account index or None for primary/virtual, bucket position).
+    let routes: Vec<(Option<usize>, Option<usize>)> = data
+        .flows
+        .iter()
+        .map(|f| {
+            let bucket = if f.kind.is_outflow() { f.bucket_id.and_then(bucket_pos) } else { None };
+            let account = match bucket {
+                Some(bp) => Some(buckets[bp].0),
+                None => f.account_id.and_then(account_index),
+            };
+            (account.or(primary), bucket)
+        })
+        .collect();
 
-    let mut proj = Projection::default();
+    let mut proj = Projection {
+        account_ids: data.accounts.iter().map(|a| a.id).collect(),
+        bucket_ids: buckets.iter().map(|(_, b)| b.id).collect(),
+        ..Default::default()
+    };
     let mut infl_factor = 1.0;
 
     for m in 0..months_total {
@@ -125,20 +160,6 @@ pub fn project(data: &AppData, today: NaiveDate, years: u32) -> Projection {
         let from = if m == 0 { today } else { month };
         let to = next_month - Duration::days(1);
         let years_elapsed = (m / 12) as i32;
-
-        let (mut income, mut expenses, mut bills) = (0.0, 0.0, 0.0);
-        for f in &data.flows {
-            let n = f.occurrences_between(from, to).len();
-            if n == 0 {
-                continue;
-            }
-            let amt = f.amount * (1.0 + f.annual_change_pct / 100.0).powi(years_elapsed) * n as f64;
-            match f.kind {
-                FlowKind::Income => income += amt,
-                FlowKind::Expense => expenses += amt,
-                FlowKind::Bill => bills += amt,
-            }
-        }
 
         // Growth and contributions.
         let mut cash_contrib = 0.0;
@@ -149,11 +170,41 @@ pub fn project(data: &AppData, today: NaiveDate, years: u32) -> Projection {
                 cash_contrib += a.monthly_contribution;
             }
         }
-
-        let net = income - expenses - bills - cash_contrib;
         match primary {
-            Some(p) => balances[p] += net,
-            None => virtual_cash += net,
+            Some(p) => balances[p] -= cash_contrib,
+            None => virtual_cash -= cash_contrib,
+        }
+
+        // Buckets top up toward their targets (an earmark inside the account).
+        for (k, (_, b)) in buckets.iter().enumerate() {
+            let room = b.target.map(|t| (t - bucket_bal[k]).max(0.0)).unwrap_or(f64::INFINITY);
+            bucket_bal[k] += b.monthly_add.max(0.0).min(room);
+        }
+
+        let (mut income, mut expenses, mut bills) = (0.0, 0.0, 0.0);
+        for (fi, f) in data.flows.iter().enumerate() {
+            let n = f.occurrences_between(from, to).len();
+            if n == 0 {
+                continue;
+            }
+            let amt = f.amount * (1.0 + f.annual_change_pct / 100.0).powi(years_elapsed) * n as f64;
+            match f.kind {
+                FlowKind::Income => income += amt,
+                FlowKind::Expense => expenses += amt,
+                FlowKind::Bill => bills += amt,
+            }
+            let signed = if f.kind.is_outflow() { -amt } else { amt };
+            let (account, bucket) = routes[fi];
+            match account {
+                Some(i) => balances[i] += signed,
+                None => virtual_cash += signed,
+            }
+            if let Some(k) = bucket {
+                if amt > bucket_bal[k] + 1e-9 && !proj.bucket_dry.iter().any(|(id, _)| *id == buckets[k].1.id) {
+                    proj.bucket_dry.push((buckets[k].1.id, month));
+                }
+                bucket_bal[k] = (bucket_bal[k] - amt).max(0.0);
+            }
         }
 
         infl_factor *= 1.0 + infl_m;
@@ -167,6 +218,8 @@ pub fn project(data: &AppData, today: NaiveDate, years: u32) -> Projection {
             investments: 0.0,
             retirement: 0.0,
             inflation_factor: infl_factor,
+            accounts: balances.clone(),
+            buckets: bucket_bal.clone(),
         };
         for (i, a) in data.accounts.iter().enumerate() {
             match a.kind.group() {
@@ -267,6 +320,8 @@ mod tests {
             annual_change_pct: 0.0,
             autopay: false,
             notes: String::new(),
+            account_id: None,
+            bucket_id: None,
         }
     }
 
@@ -334,6 +389,68 @@ mod tests {
         assert!((p.months[24].income - 1210.0).abs() < 1e-9);
         // No accounts: cash goes to a virtual bucket.
         assert!(p.months[0].cash > 0.0);
+    }
+
+    #[test]
+    fn flows_use_their_own_accounts() {
+        let mut data = AppData::default();
+        data.settings.inflation_pct = 0.0;
+        data.accounts.push(account(1, AccountKind::Checking, 1000.0, 0.0, 0.0, false));
+        data.accounts.push(account(2, AccountKind::Savings, 5000.0, 0.0, 0.0, false));
+        let mut pay = cf(FlowKind::Income, 3000.0, Frequency::Monthly, d(2026, 1, 1));
+        pay.account_id = None; // default → checking
+        let mut medical = cf(FlowKind::Expense, 100.0, Frequency::Monthly, d(2026, 1, 5));
+        medical.account_id = Some(2);
+        let mut ghost = cf(FlowKind::Bill, 50.0, Frequency::Monthly, d(2026, 1, 5));
+        ghost.account_id = Some(99); // deleted account → falls back to checking
+        data.flows.extend([pay, medical, ghost]);
+        let p = project(&data, d(2026, 1, 1), 1);
+        assert_eq!(p.account_ids, vec![1, 2]);
+        let m = &p.months[1];
+        assert!((m.accounts[0] - (1000.0 + 2.0 * 2950.0)).abs() < 1e-9);
+        assert!((m.accounts[1] - (5000.0 - 200.0)).abs() < 1e-9);
+        assert!((m.cash - (m.accounts[0] + m.accounts[1])).abs() < 1e-9);
+    }
+
+    #[test]
+    fn buckets_top_up_pay_bills_and_run_dry() {
+        let mut data = AppData::default();
+        data.accounts.push(account(1, AccountKind::Checking, 1000.0, 0.0, 0.0, false));
+        data.accounts.push(account(2, AccountKind::Savings, 3000.0, 0.0, 0.0, false));
+        data.buckets.push(Bucket {
+            id: 10,
+            account_id: 2,
+            name: "Rainy day".into(),
+            balance: 1000.0,
+            monthly_add: 300.0,
+            target: Some(1500.0),
+            notes: String::new(),
+        });
+        data.buckets.push(Bucket {
+            id: 11,
+            account_id: 2,
+            name: "Car".into(),
+            balance: 250.0,
+            monthly_add: 50.0,
+            target: None,
+            notes: String::new(),
+        });
+        let mut car = cf(FlowKind::Bill, 400.0, Frequency::Quarterly, d(2026, 3, 10));
+        car.bucket_id = Some(11);
+        car.account_id = Some(1); // bucket wins: paid from savings
+        data.flows.push(car);
+        let p = project(&data, d(2026, 1, 1), 1);
+        assert_eq!(p.bucket_ids, vec![10, 11]);
+        // Rainy day: 1300 in Jan, then capped at 1500.
+        assert_eq!(p.months[0].buckets[0], 1300.0);
+        assert_eq!(p.months[1].buckets[0], 1500.0);
+        assert_eq!(p.months[5].buckets[0], 1500.0);
+        // Car: 300, 350, 400 → bill of 400 in March leaves 0 (exactly enough), June: 150 < 400 → dry.
+        assert_eq!(p.months[2].buckets[1], 0.0);
+        assert_eq!(p.bucket_dry, vec![(11, d(2026, 6, 1))]);
+        // The bill comes out of savings, not checking; earmarks don't change the account total.
+        assert_eq!(p.months[2].accounts[0], 1000.0);
+        assert_eq!(p.months[2].accounts[1], 2600.0);
     }
 
     #[test]

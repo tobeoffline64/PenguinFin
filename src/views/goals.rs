@@ -58,7 +58,17 @@ pub fn GoalsPage(on_nav: EventHandler<Page>) -> Element {
     let outflow = data.monthly_total(|k| k != FlowKind::Income, today);
     let leftover = income - outflow - data.monthly_cash_contributions();
     let baseline = data.cash_baseline();
+    let bucketed = data.cash_buckets_total();
+    let reserved = baseline + bucketed;
     let cash_now = data.group_total(AccountGroup::Cash);
+    let cash_buckets: Vec<(String, penguinfin::model::Bucket)> = data
+        .buckets
+        .iter()
+        .filter_map(|b| {
+            let a = data.accounts.iter().find(|a| a.id == b.account_id && a.kind.group() == AccountGroup::Cash)?;
+            Some((a.name.clone(), b.clone()))
+        })
+        .collect();
 
     let mut open: Vec<Goal> = data.goals.iter().filter(|g| g.purchased_on.is_none()).cloned().collect();
     open.sort_by_key(|g| (g.priority, g.id));
@@ -74,25 +84,26 @@ pub fn GoalsPage(on_nav: EventHandler<Page>) -> Element {
 
         div { class: "grid grid-cols-2 gap-4 @3xl:grid-cols-4",
             Stat { label: "Checking + savings", value: money(cash_now, &sym), sub: "Where goals are paid from" }
-            Stat { label: "Baseline kept", value: money(baseline, &sym), sub: "Sum of minimum balances" }
-            Stat { label: "Spendable now", value: money(cash_now - baseline, &sym),
-                tone: if cash_now - baseline < 0.0 { "bad" } else { "good" },
+            Stat { label: "Reserved", value: money(reserved, &sym),
+                sub: format!("Minimums {} · Buckets {}", money(baseline, &sym), money(bucketed, &sym)) }
+            Stat { label: "Spendable now", value: money(cash_now - reserved, &sym),
+                tone: if cash_now - reserved < 0.0 { "bad" } else { "good" },
                 sub: format!("Planned goals total {}", money(total_open, &sym)) }
             Stat { label: "Left over / month", value: money(leftover, &sym),
                 tone: if leftover < 0.0 { "bad" } else { "" }, sub: "After bills, expenses and savings transfers" }
         }
 
-        if baseline <= 0.0 && !cash_accounts.is_empty() {
+        if reserved <= 0.0 && !cash_accounts.is_empty() {
             div { class: "flex flex-wrap items-center justify-between gap-3 rounded-xl border border-dashed p-4 text-sm",
                 span { class: "text-muted-foreground",
-                    "No minimum balances set, so every dollar in checking and savings counts as spendable. Set a baseline for each account to keep money for bills, medical, food and emergencies." }
+                    "Nothing reserved yet, so every dollar in checking and savings counts as spendable. Set minimum balances or buckets (like Rainy day money) in Accounts to keep money for bills, medical, food and emergencies." }
                 Button { variant: ButtonVariant::Outline, size: ButtonSize::Sm, onclick: move |_| on_nav.call(Page::Accounts), "Set minimums in Accounts" }
             }
-        } else if baseline > 0.0 {
+        } else if reserved > 0.0 {
             Card { size: CardSize::Sm,
                 CardHeader {
-                    CardTitle { "Baseline by account" }
-                    CardDescription { "Kept in place before any goal is bought. Change these in Accounts." }
+                    CardTitle { "Reserved money" }
+                    CardDescription { "Minimum balances and buckets are kept in place before any goal is bought. Change these in Accounts." }
                 }
                 CardContent { class: "flex flex-wrap gap-2",
                     for a in cash_accounts.iter().filter(|a| a.minimum_balance > 0.0) {
@@ -101,7 +112,13 @@ pub fn GoalsPage(on_nav: EventHandler<Page>) -> Element {
                             if !a.purpose.is_empty() {
                                 Badge { variant: BadgeVariant::Info, size: BadgeSize::Sm, "{a.purpose}" }
                             }
-                            span { class: "tabular-nums text-muted-foreground", {money(a.minimum_balance, &sym)} }
+                            span { class: "tabular-nums text-muted-foreground", "min {money(a.minimum_balance, &sym)}" }
+                        }
+                    }
+                    for (acct, b) in cash_buckets.iter() {
+                        div { key: "b{b.id}", class: "flex items-center gap-2 rounded-lg border px-3 py-2 text-sm",
+                            span { class: "font-medium", "{acct} › {b.name}" }
+                            span { class: "tabular-nums text-muted-foreground", "bucket {money(b.balance, &sym)}" }
                         }
                     }
                 }
@@ -282,7 +299,7 @@ fn SpendableChart(plan: GoalsPlan, loading: bool, sym: String) -> Element {
         Card {
             CardHeader {
                 CardTitle { "Spendable cash after planned purchases" }
-                CardDescription { "Checking + savings minus your minimum balances, after buying each goal when it becomes affordable." }
+                CardDescription { "Checking + savings minus minimum balances and buckets, after buying each goal when it becomes affordable." }
             }
             CardContent {
                 LineChart {
@@ -401,7 +418,7 @@ fn GoalFormCard(form: Signal<GoalForm>, generation: Signal<u32>, sym: String) ->
                     }
                 }
                 p { class: "text-xs text-muted-foreground",
-                    "Goals are paid from checking and savings, never touching each account's minimum balance. Marking a goal as bought doesn't change balances, so update the account afterwards." }
+                    "Goals are paid from checking and savings, never touching minimum balances or money in buckets. Marking a goal as bought doesn't change balances, so update the account afterwards." }
             }
             }
         }

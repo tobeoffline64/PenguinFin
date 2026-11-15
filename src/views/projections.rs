@@ -123,6 +123,10 @@ pub fn ProjectionsPage() -> Element {
             }
         }
 
+        if !data.accounts.is_empty() {
+            AccountsBucketsCard { proj: base.clone(), loading }
+        }
+
         Card {
             CardHeader {
                 CardTitle { "What if…" }
@@ -262,6 +266,8 @@ fn build_scenario(data: &AppData, wi: &WhatIf, today: NaiveDate) -> AppData {
         annual_change_pct: 0.0,
         autopay: false,
         notes: String::new(),
+        account_id: None,
+        bucket_id: None,
     };
     if wi.income != 0.0 {
         scenario.flows.push(mk(FlowKind::Income, wi.income));
@@ -290,4 +296,167 @@ fn build_scenario(data: &AppData, wi: &WhatIf, today: NaiveDate) -> AppData {
         }
     }
     scenario
+}
+
+const LAYER_COLORS: [&str; 7] = [
+    "var(--chart-3)",
+    "var(--success)",
+    "var(--warning)",
+    "var(--info)",
+    "var(--chart-5)",
+    "var(--destructive)",
+    "var(--chart-2)",
+];
+
+/// One account over time, split into its buckets and unallocated money.
+#[component]
+fn AccountsBucketsCard(proj: penguinfin::projection::Projection, loading: bool) -> Element {
+    let store = use_store();
+    let data = store.data.read().clone();
+    let sym = data.settings.currency_symbol.clone();
+    let default_id = data
+        .accounts
+        .iter()
+        .find(|a| data.buckets_for(a.id).next().is_some())
+        .or(data.primary_cash_account())
+        .or(data.accounts.first())
+        .map(|a| a.id);
+    let mut selected = use_signal(|| default_id);
+    // Months shown: 24, 60, or 0 = whole projection (one point per year).
+    let mut range = use_signal(|| 24usize);
+    let Some(account) = selected()
+        .and_then(|id| data.accounts.iter().find(|a| a.id == id))
+        .or_else(|| default_id.and_then(|id| data.accounts.iter().find(|a| a.id == id)))
+        .cloned()
+    else {
+        return rsx! {};
+    };
+    let account_options: Vec<(String, String)> =
+        data.accounts.iter().map(|a| (a.id.to_string(), format!("{} ({})", a.name, a.kind.label()))).collect();
+    let flow = data.money_flow(account.id, today());
+
+    let header = rsx! {
+        CardHeader {
+            CardTitle { "Accounts & buckets" }
+            CardDescription { "How one account's money is split over time: each bucket, what's unallocated, and its minimum balance. Bills and income use the account or bucket you picked for them." }
+        }
+    };
+    let controls = rsx! {
+        div { class: "flex flex-wrap items-end gap-4",
+            div { class: "w-72 max-w-full",
+                Field { label: "Account",
+                    NativeSelect { value: account.id.to_string(), options: account_options,
+                        onchange: move |v: String| selected.set(v.parse().ok()) }
+                }
+            }
+            div { class: "inline-flex rounded-lg bg-muted p-1",
+                for (months, label) in [(24usize, "2 years"), (60, "5 years"), (0, "All")] {
+                    button {
+                        key: "{label}",
+                        class: if range() == months { "rounded-md bg-background px-3 py-1 text-sm font-medium shadow-sm" }
+                               else { "rounded-md px-3 py-1 text-sm text-muted-foreground hover:text-foreground cursor-pointer" },
+                        onclick: move |_| range.set(months),
+                        "{label}"
+                    }
+                }
+            }
+        }
+    };
+    if loading || proj.months.is_empty() {
+        return rsx! { Card { {header} CardContent { class: "flex flex-col gap-4", {controls} ChartSkeleton {} } } };
+    }
+
+    let Some(ai) = proj.account_ids.iter().position(|id| *id == account.id) else { return rsx! {} };
+    let bucket_pos: Vec<(usize, penguinfin::model::Bucket)> = proj
+        .bucket_ids
+        .iter()
+        .enumerate()
+        .filter_map(|(i, id)| data.bucket(*id).filter(|b| b.account_id == account.id).map(|b| (i, b.clone())))
+        .collect();
+    let idx: Vec<usize> = match range() {
+        0 => (11..proj.months.len()).step_by(12).collect(),
+        m => (0..proj.months.len().min(m)).collect(),
+    };
+    let labels: Vec<String> = idx
+        .iter()
+        .map(|&i| {
+            let d = proj.months[i].month;
+            if range() == 0 { d.format("%Y").to_string() } else { d.format("%b %y").to_string() }
+        })
+        .collect();
+    let bucket_sum = |i: usize| bucket_pos.iter().map(|(p, _)| proj.months[i].buckets[*p]).sum::<f64>();
+    let mut layers: Vec<Series> = vec![Series {
+        name: "Unallocated".into(),
+        color: "var(--chart-muted)".into(),
+        values: idx.iter().map(|&i| (proj.months[i].accounts[ai] - bucket_sum(i)).max(0.0)).collect(),
+        bold: false,
+    }];
+    for (n, (p, b)) in bucket_pos.iter().enumerate() {
+        layers.push(Series {
+            name: b.name.clone(),
+            color: LAYER_COLORS[n % LAYER_COLORS.len()].into(),
+            values: idx.iter().map(|&i| proj.months[i].buckets[*p]).collect(),
+            bold: false,
+        });
+    }
+    let total = Series {
+        name: "Balance".into(),
+        color: "var(--foreground)".into(),
+        values: idx.iter().map(|&i| proj.months[i].accounts[ai]).collect(),
+        bold: true,
+    };
+    let reference = (account.minimum_balance > 0.0).then(|| ("Minimum".to_string(), account.minimum_balance));
+
+    // Warnings over the whole projection.
+    let mut warnings: Vec<String> = Vec::new();
+    for (id, when) in &proj.bucket_dry {
+        if let Some((_, b)) = bucket_pos.iter().find(|(_, b)| b.id == *id) {
+            warnings.push(format!(
+                "{} runs dry in {}. Bills paid from it then come out of {}'s unallocated money.",
+                b.name, when.format("%B %Y"), account.name
+            ));
+        }
+    }
+    if account.minimum_balance > 0.0
+        && let Some(m) = proj.months.iter().find(|m| m.accounts[ai] < account.minimum_balance)
+    {
+        warnings.push(format!(
+            "{} drops below its {} minimum in {}.",
+            account.name,
+            money(account.minimum_balance, &sym),
+            m.month.format("%B %Y")
+        ));
+    }
+    if !bucket_pos.is_empty()
+        && let Some((i, _)) = proj.months.iter().enumerate().find(|(i, m)| bucket_sum(*i) > m.accounts[ai] + 0.5)
+    {
+        warnings.push(format!("Buckets add up to more than {}'s balance in {}.", account.name, proj.months[i].month.format("%B %Y")));
+    }
+
+    rsx! {
+        Card {
+            {header}
+            CardContent { class: "flex flex-col gap-4",
+                {controls}
+                StackedChart { layers, total, reference, labels, currency: sym.clone() }
+                div { class: "flex flex-wrap gap-x-6 gap-y-1 text-xs text-muted-foreground",
+                    if !flow.received.is_empty() {
+                        span { "Receives {money(flow.received_monthly, &sym)}/mo: {flow.received.join(\", \")}" }
+                    }
+                    if !flow.paid.is_empty() {
+                        span { "Pays {money(flow.paid_monthly, &sym)}/mo: {flow.paid.join(\", \")}" }
+                    }
+                    if flow.received.is_empty() && flow.paid.is_empty() {
+                        span { "No income or bills use this account yet. Pick it under \u{201c}Paid from\u{201d} / \u{201c}Deposited to\u{201d} on a bill, expense or income." }
+                    }
+                }
+                for w in warnings.iter() {
+                    div { class: "flex items-start gap-2 rounded-lg border border-warning/50 bg-warning-light px-3 py-2 text-sm text-warning-dark",
+                        Icon { name: IconName::Alert, class: "size-4 shrink-0 mt-0.5" }
+                        "{w}"
+                    }
+                }
+            }
+        }
+    }
 }

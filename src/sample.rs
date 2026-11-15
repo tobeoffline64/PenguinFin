@@ -19,6 +19,8 @@ pub fn sample_data(today: NaiveDate) -> AppData {
         annual_change_pct: change,
         autopay,
         notes: String::new(),
+        account_id: None,
+        bucket_id: None,
     };
     use FlowKind::*;
     use Frequency::*;
@@ -55,7 +57,7 @@ pub fn sample_data(today: NaiveDate) -> AppData {
     };
     let accounts = vec![
         acct(1, "Checking", AccountKind::Checking, 4200.0, 0.0, 0.0, false, 0.0),
-        acct(2, "High-yield savings", AccountKind::Savings, 12000.0, 4.0, 300.0, true, 0.0),
+        acct(2, "High-yield savings", AccountKind::Savings, 12000.0, 4.0, 450.0, true, 0.0),
         acct(3, "Brokerage", AccountKind::Brokerage, 150.0, 7.0, 250.0, true, 0.0),
         acct(4, "Work 401(k)", AccountKind::Retirement401k, 48000.0, 7.0, 600.0, false, 300.0),
         acct(5, "Roth IRA", AccountKind::RothIra, 21000.0, 7.0, 500.0, true, 0.0),
@@ -69,5 +71,23 @@ pub fn sample_data(today: NaiveDate) -> AppData {
         price_updated: Some(today),
     };
     let holdings = vec![hold(1, 3, "VTI", 30.0, 290.0), hold(2, 3, "VXUS", 40.0, 65.0)];
-    AppData { flows, accounts, holdings, settings: Settings::default(), ..Default::default() }
+    // Savings holds two buckets; car costs are paid from savings.
+    let bucket = |id, name: &str, balance, monthly_add, target| Bucket {
+        id,
+        account_id: 2,
+        name: name.into(),
+        balance,
+        monthly_add,
+        target,
+        notes: String::new(),
+    };
+    let buckets = vec![bucket(1, "Rainy day", 5000.0, 150.0, Some(10000.0)), bucket(2, "Car repairs", 600.0, 85.0, None)];
+    flows.push(CashFlow {
+        bucket_id: Some(2),
+        ..flow(Bill, "Car maintenance", "Transportation", 450.0, SemiAnnually, on(10), 3.0, false)
+    });
+    flows[7].account_id = Some(2); // car insurance comes out of savings
+    // Medical comes out of savings too.
+    flows.push(CashFlow { account_id: Some(2), ..flow(Expense, "Doctor & pharmacy", "Health", 60.0, Monthly, on(14), 4.0, false) });
+    AppData { flows, accounts, holdings, buckets, settings: Settings::default(), ..Default::default() }
 }

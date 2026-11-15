@@ -118,6 +118,13 @@ pub struct CashFlow {
     pub annual_change_pct: f64,
     pub autopay: bool,
     pub notes: String,
+    /// Account this flow uses: income is deposited to it, bills/expenses are paid from it.
+    /// `None` = the default (first checking account).
+    #[serde(default)]
+    pub account_id: Option<i64>,
+    /// For bills/expenses: the bucket (inside `account_id`'s account) that pays it.
+    #[serde(default)]
+    pub bucket_id: Option<i64>,
 }
 
 impl CashFlow {
@@ -327,6 +334,22 @@ pub struct Account {
     pub minimum_balance: f64,
 }
 
+/// A named portion of an account's money (e.g. "Rainy day"), optionally topped up monthly
+/// up to a target. Bills/expenses can be paid from a bucket.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Bucket {
+    pub id: i64,
+    pub account_id: i64,
+    pub name: String,
+    /// Amount set aside in the bucket today.
+    pub balance: f64,
+    /// Moved into the bucket from the account's unallocated money each month.
+    pub monthly_add: f64,
+    /// Stop topping up once the bucket holds this much. `None` = no cap.
+    pub target: Option<f64>,
+    pub notes: String,
+}
+
 /// Something to buy, funded from checking and savings.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Goal {
@@ -470,6 +493,15 @@ impl Default for Settings {
     }
 }
 
+/// Which bills/expenses and income use an account (directly or through its buckets).
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct MoneyFlow {
+    pub paid: Vec<String>,
+    pub paid_monthly: f64,
+    pub received: Vec<String>,
+    pub received_monthly: f64,
+}
+
 /// Everything stored in the database, loaded into memory.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct AppData {
@@ -478,6 +510,8 @@ pub struct AppData {
     pub holdings: Vec<Holding>,
     #[serde(default)]
     pub goals: Vec<Goal>,
+    #[serde(default)]
+    pub buckets: Vec<Bucket>,
     pub settings: Settings,
     /// FRED settings (includes the API key, so never written to backups).
     #[serde(skip)]
@@ -515,6 +549,74 @@ impl AppData {
             .filter(|f| pred(f.kind))
             .filter(|f| f.end_date.is_none_or(|e| e >= today))
             .map(CashFlow::monthly_equivalent)
+            .sum()
+    }
+
+    /// Where flows without an account go: the first checking account, else the first
+    /// savings account.
+    pub fn primary_cash_account(&self) -> Option<&Account> {
+        self.accounts
+            .iter()
+            .find(|a| a.kind == AccountKind::Checking)
+            .or_else(|| self.accounts.iter().find(|a| a.kind.group() == AccountGroup::Cash))
+    }
+
+    /// The account a flow actually uses (its bucket's account, its own account, or the
+    /// primary cash account).
+    pub fn flow_account_id(&self, f: &CashFlow) -> Option<i64> {
+        if let Some(b) = f.bucket_id.and_then(|id| self.bucket(id)) {
+            return Some(b.account_id);
+        }
+        f.account_id
+            .filter(|id| self.accounts.iter().any(|a| a.id == *id))
+            .or_else(|| self.primary_cash_account().map(|a| a.id))
+    }
+
+    pub fn money_flow(&self, account_id: i64, today: NaiveDate) -> MoneyFlow {
+        let mut mf = MoneyFlow::default();
+        for f in self.flows.iter().filter(|f| f.end_date.is_none_or(|e| e >= today)) {
+            if self.flow_account_id(f) != Some(account_id) {
+                continue;
+            }
+            if f.kind.is_outflow() {
+                mf.paid.push(f.name.clone());
+                mf.paid_monthly += f.monthly_equivalent();
+            } else {
+                mf.received.push(f.name.clone());
+                mf.received_monthly += f.monthly_equivalent();
+            }
+        }
+        mf
+    }
+
+    pub fn buckets_for(&self, account_id: i64) -> impl Iterator<Item = &Bucket> {
+        self.buckets.iter().filter(move |b| b.account_id == account_id)
+    }
+
+    pub fn account_name(&self, id: i64) -> Option<&str> {
+        self.accounts.iter().find(|a| a.id == id).map(|a| a.name.as_str())
+    }
+
+    pub fn bucket(&self, id: i64) -> Option<&Bucket> {
+        self.buckets.iter().find(|b| b.id == id)
+    }
+
+    /// "Savings › Rainy day", "Checking", or "" for the default account.
+    pub fn flow_source_label(&self, f: &CashFlow) -> String {
+        if let Some(b) = f.bucket_id.and_then(|id| self.bucket(id)) {
+            return format!("{} › {}", self.account_name(b.account_id).unwrap_or("?"), b.name);
+        }
+        f.account_id.and_then(|id| self.account_name(id)).map(str::to_string).unwrap_or_default()
+    }
+
+    /// Money set aside in buckets of checking and savings accounts today.
+    pub fn cash_buckets_total(&self) -> f64 {
+        self.buckets
+            .iter()
+            .filter(|b| {
+                self.accounts.iter().any(|a| a.id == b.account_id && a.kind.group() == AccountGroup::Cash)
+            })
+            .map(|b| b.balance.max(0.0))
             .sum()
     }
 
@@ -559,6 +661,8 @@ mod tests {
             annual_change_pct: 0.0,
             autopay: false,
             notes: String::new(),
+            account_id: None,
+            bucket_id: None,
         }
     }
 

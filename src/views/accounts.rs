@@ -3,13 +3,14 @@ use crate::ui::badge::*;
 use crate::ui::button::*;
 use crate::ui::card::*;
 use crate::ui::input::*;
+use crate::ui::progress::Progress;
 use crate::ui::switch::Switch;
 use crate::ui::table::*;
 use crate::views::dashboard::PageHeader;
 use crate::widgets::*;
 use dioxus::prelude::*;
 use penguinfin::fred::{Indicator, MarketData};
-use penguinfin::model::{Account, AccountGroup, AccountKind, Holding};
+use penguinfin::model::{Account, AccountGroup, AccountKind, Bucket, Holding, MoneyFlow};
 
 /// Where an account's monthly contribution comes from.
 #[derive(Clone, Copy, PartialEq)]
@@ -297,6 +298,8 @@ pub fn AccountsPage() -> Element {
                                         account: a.clone(),
                                         value: data.account_value(&a),
                                         holdings: data.holdings_for(a.id).cloned().collect::<Vec<_>>(),
+                                        buckets: data.buckets_for(a.id).cloned().collect::<Vec<_>>(),
+                                        money_flow: data.money_flow(a.id, today()),
                                         sym: sym.clone(),
                                         selected: editing_id() == a.id,
                                         on_edit: move |a: Account| { form.set(AccountForm::from_account(&a)); generation += 1; },
@@ -460,11 +463,157 @@ fn AccountFormCard(form: Signal<AccountForm>, generation: Signal<u32>, sym: Stri
     }
 }
 
+#[derive(Clone, PartialEq)]
+struct BucketForm {
+    id: i64,
+    name: String,
+    balance: String,
+    monthly_add: String,
+    target: String,
+}
+
+impl BucketForm {
+    fn new() -> Self {
+        BucketForm { id: 0, name: String::new(), balance: String::new(), monthly_add: String::new(), target: String::new() }
+    }
+    fn from_bucket(b: &Bucket) -> Self {
+        BucketForm {
+            id: b.id,
+            name: b.name.clone(),
+            balance: num_str(b.balance),
+            monthly_add: if b.monthly_add > 0.0 { num_str(b.monthly_add) } else { String::new() },
+            target: b.target.map(num_str).unwrap_or_default(),
+        }
+    }
+    fn to_bucket(&self, account_id: i64) -> Result<Bucket, String> {
+        let name = self.name.trim();
+        if name.is_empty() {
+            return Err("Give the bucket a name, e.g. Rainy day money.".into());
+        }
+        let num = |s: &str, what: &str| -> Result<f64, String> {
+            if s.trim().is_empty() { Ok(0.0) } else { parse_num(s).map(|v| v.max(0.0)).ok_or(format!("{what} must be a number.")) }
+        };
+        let target = if self.target.trim().is_empty() { None } else { Some(num(&self.target, "Target")?) };
+        Ok(Bucket {
+            id: self.id,
+            account_id,
+            name: name.into(),
+            balance: num(&self.balance, "Amount")?,
+            monthly_add: num(&self.monthly_add, "Monthly top-up")?,
+            target,
+            notes: String::new(),
+        })
+    }
+}
+
+/// Buckets inside an account: earmarked portions such as "Rainy day money".
+#[component]
+fn BucketsPanel(account_id: i64, value: f64, buckets: Vec<Bucket>, sym: String) -> Element {
+    let mut store = use_store();
+    let mut editing = use_signal(|| None::<BucketForm>);
+    let mut error = use_signal(|| None::<String>);
+    let mut generation = use_signal(|| 0u32);
+    let allocated: f64 = buckets.iter().map(|b| b.balance).sum();
+    let unallocated = value - allocated;
+
+    let save = move |_| {
+        let Some(f) = editing.read().clone() else { return };
+        match f.to_bucket(account_id) {
+            Ok(b) => {
+                error.set(None);
+                store.mutate(if b.id == 0 { "Bucket added" } else { "Bucket saved" }, |db| db.save_bucket(&b).map(|_| ()));
+                editing.set(None);
+            }
+            Err(e) => error.set(Some(e)),
+        }
+    };
+
+    if buckets.is_empty() && editing.read().is_none() {
+        return rsx! {
+            div {
+                Button { variant: ButtonVariant::Link, size: ButtonSize::Sm, class: "px-0",
+                    onclick: move |_| { editing.set(Some(BucketForm::new())); generation += 1; },
+                    "+ Split into buckets (e.g. Rainy day money)" }
+            }
+        };
+    }
+
+    rsx! {
+        div { class: "flex flex-col gap-2 rounded-md bg-muted/50 p-3",
+            div { class: "flex flex-wrap items-center justify-between gap-2 text-xs",
+                span { class: "font-medium text-foreground", "Buckets" }
+                span { class: if unallocated < -0.005 { "font-medium text-destructive" } else { "text-muted-foreground" },
+                    if unallocated < -0.005 {
+                        "Buckets are {money(-unallocated, &sym)} more than the balance"
+                    } else {
+                        "Unallocated: {money(unallocated, &sym)}"
+                    }
+                }
+            }
+            for b in buckets.iter().cloned() {
+                div { key: "{b.id}", class: "flex flex-col gap-1 rounded-md border bg-background px-3 py-2",
+                    div { class: "flex items-center gap-2",
+                        span { class: "flex-1 text-sm font-medium", "{b.name}" }
+                        span { class: "text-sm font-semibold tabular-nums", {money(b.balance, &sym)} }
+                        Button { size: ButtonSize::IconXs, variant: ButtonVariant::Ghost, title: "Edit bucket",
+                            onclick: { let b = b.clone(); move |_| { error.set(None); editing.set(Some(BucketForm::from_bucket(&b))); generation += 1; } },
+                            Icon { name: IconName::Pencil, class: "size-3.5" } }
+                        Button { size: ButtonSize::IconXs, variant: ButtonVariant::Ghost, title: "Delete bucket (its bills fall back to this account)",
+                            onclick: { let id = b.id; move |_| store.mutate("Bucket deleted", |db| db.delete_bucket(id)) },
+                            Icon { name: IconName::Trash, class: "size-3.5" } }
+                    }
+                    div { class: "flex flex-wrap gap-x-3 text-xs text-muted-foreground",
+                        if b.monthly_add > 0.0 { span { "+{money(b.monthly_add, &sym)}/mo" } }
+                        if let Some(t) = b.target { span { "target {money(t, &sym)}" } }
+                    }
+                    if let Some(t) = b.target.filter(|t| *t > 0.0) {
+                        Progress { value: b.balance.min(t), max: t, class: "h-1.5" }
+                    }
+                }
+            }
+            if let Some(f) = editing() {
+                for g in [generation()] {
+                    div { key: "{g}", class: "flex flex-col gap-2 rounded-md border bg-background p-3",
+                        div { class: "grid grid-cols-2 gap-2",
+                            Field { label: "Bucket name",
+                                Input { value: f.name.clone(), placeholder: "e.g. Rainy day money",
+                                    oninput: move |e: FormEvent| if let Some(f) = editing.write().as_mut() { f.name = e.value() } } }
+                            Field { label: "Set aside now ({sym})",
+                                Input { value: f.balance.clone(), placeholder: "0",
+                                    oninput: move |e: FormEvent| if let Some(f) = editing.write().as_mut() { f.balance = e.value() } } }
+                            Field { label: "Add each month ({sym})",
+                                Input { value: f.monthly_add.clone(), placeholder: "0",
+                                    oninput: move |e: FormEvent| if let Some(f) = editing.write().as_mut() { f.monthly_add = e.value() } } }
+                            Field { label: "Target (optional)",
+                                Input { value: f.target.clone(), placeholder: "No limit",
+                                    oninput: move |e: FormEvent| if let Some(f) = editing.write().as_mut() { f.target = e.value() } } }
+                        }
+                        p { class: "text-xs text-muted-foreground",
+                            "Money set aside here stays in this account but is reserved: savings goals won't spend it. Monthly top-ups stop at the target. Choose this bucket as \u{201c}Paid from\u{201d} on a bill or expense to pay it from here." }
+                        if let Some(e) = error() { p { class: "text-xs text-destructive", "{e}" } }
+                        div { class: "flex gap-2",
+                            Button { size: ButtonSize::Sm, onclick: save, if f.id == 0 { "Add bucket" } else { "Save bucket" } }
+                            Button { size: ButtonSize::Sm, variant: ButtonVariant::Ghost, onclick: move |_| { error.set(None); editing.set(None) }, "Cancel" }
+                        }
+                    }
+                }
+            } else {
+                div {
+                    Button { variant: ButtonVariant::Link, size: ButtonSize::Sm, class: "px-0",
+                        onclick: move |_| { error.set(None); editing.set(Some(BucketForm::new())); generation += 1; }, "+ Add bucket" }
+                }
+            }
+        }
+    }
+}
+
 #[component]
 fn AccountItem(
     account: Account,
     value: f64,
     holdings: Vec<Holding>,
+    buckets: Vec<Bucket>,
+    money_flow: MoneyFlow,
     sym: String,
     selected: bool,
     on_edit: EventHandler<Account>,
@@ -519,6 +668,17 @@ fn AccountItem(
                     }
                 }
             }
+            if !money_flow.paid.is_empty() || !money_flow.received.is_empty() {
+                div { class: "flex flex-col gap-0.5 text-xs text-muted-foreground",
+                    if !money_flow.received.is_empty() {
+                        span { "Deposits: {money_flow.received.join(\", \")} · +{money(money_flow.received_monthly, &sym)}/mo" }
+                    }
+                    if !money_flow.paid.is_empty() {
+                        span { "Pays: {money_flow.paid.join(\", \")} · −{money(money_flow.paid_monthly, &sym)}/mo" }
+                    }
+                }
+            }
+            BucketsPanel { account_id: id, value, buckets, sym: sym.clone() }
             if invests {
                 Holdings { account_id: id, holdings, sym, cash: account.balance }
             }
