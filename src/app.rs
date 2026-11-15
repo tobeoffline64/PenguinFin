@@ -167,6 +167,7 @@ fn Shell() -> Element {
     // Keep browser-side state in sync with settings.
     use_effect(move || {
         let s = store.data.read().settings.clone();
+        match_gtk_theme(s.dark_mode);
         document::eval(&format!(
             "window.__pfNatural = {}; document.documentElement.classList.toggle('dark', {});",
             s.natural_scroll, s.dark_mode
@@ -319,4 +320,19 @@ pub async fn sleep_ms(ms: u64) {
         let _ = tx.send(());
     });
     let _ = rx.await;
+}
+
+/// Native popups (like the list of a dropdown) are drawn by GTK with the desktop's theme,
+/// which can be dark while the app is light. Pin GTK to Adwaita in the app's own mode.
+fn match_gtk_theme(dark: bool) {
+    #[cfg(target_os = "linux")]
+    {
+        use gtk::prelude::GtkSettingsExt;
+        if let Some(settings) = gtk::Settings::default() {
+            settings.set_gtk_theme_name(Some("Adwaita"));
+            settings.set_gtk_application_prefer_dark_theme(dark);
+        }
+    }
+    #[cfg(not(target_os = "linux"))]
+    let _ = dark;
 }

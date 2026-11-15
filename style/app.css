@@ -206,6 +206,8 @@
   body { font-family: "Inter", "Cantarell", "Noto Sans", system-ui, sans-serif; }
   input[type=number]::-webkit-inner-spin-button { opacity: .4; }
   select, option { @apply bg-background text-foreground; }
+  /* Native controls follow the app theme, not the desktop theme. */
+  :root { color-scheme: light; }
   .dark { color-scheme: dark; }
 }
 

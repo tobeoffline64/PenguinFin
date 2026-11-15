@@ -30,6 +30,9 @@ curl -fL -o /tmp/penguinfin.flatpak https://github.com/tobeoffline64/penguinfin/
 flatpak install --user -y --reinstall /tmp/penguinfin.flatpak
 ```
 
+## New in 1.1.1
+- Dropdown menus now match the app's light/dark theme. On a dark desktop they were drawn dark even in light mode.
+
 ## New in 1.1.0
 - **Interface size**: Auto (scales with the window) or S / M / L / XL, from the sidebar, Settings, or Ctrl + / Ctrl − / Ctrl 0
 - **Responsive layout**: content reflows to the available space; the sidebar collapses to icons when space is tight

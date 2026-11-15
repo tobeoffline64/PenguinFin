@@ -72,6 +72,7 @@ pub enum IconName {
     Pencil,
     Trash,
     Alert,
+    ChevronDown,
 }
 
 fn icon_paths(i: IconName) -> &'static [&'static str] {
@@ -87,6 +88,7 @@ fn icon_paths(i: IconName) -> &'static [&'static str] {
         IconName::Pencil => &["M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"],
         IconName::Trash => &["M3 6h18", "M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6", "M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"],
         IconName::Alert => &["m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z", "M12 9v4", "M12 17h.01"],
+        IconName::ChevronDown => &["m6 9 6 6 6-6"],
     }
 }
 
@@ -123,18 +125,24 @@ pub fn Field(#[props(into)] label: String, #[props(into, optional)] hint: Option
     }
 }
 
-pub const SELECT_CLASS: &str = "border-input dark:bg-input/30 h-9 w-full rounded-md border bg-transparent px-2 text-sm shadow-xs outline-none focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/50";
+/// `appearance-none` stops WebKitGTK from drawing the control with the system GTK theme
+/// (which made it dark on a dark desktop); colors come from the app theme instead.
+pub const SELECT_CLASS: &str = "appearance-none border-input bg-background text-foreground dark:bg-input/30 h-9 w-full rounded-md border pl-3 pr-9 text-sm shadow-xs outline-none cursor-pointer focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/50";
 
-/// A native `<select>` styled like the Rust/UI Input.
+/// A native `<select>` styled like the Rust/UI Input, with its own chevron.
 #[component]
 pub fn NativeSelect(value: String, options: Vec<(String, String)>, onchange: EventHandler<String>) -> Element {
     rsx! {
-        select {
-            class: SELECT_CLASS,
-            onchange: move |e| onchange.call(e.value()),
-            for (k, label) in options {
-                option { value: "{k}", selected: k == value, "{label}" }
+        div { class: "relative w-full",
+            select {
+                class: SELECT_CLASS,
+                onchange: move |e| onchange.call(e.value()),
+                for (k, label) in options {
+                    option { value: "{k}", selected: k == value, "{label}" }
+                }
             }
+            Icon { name: IconName::ChevronDown,
+                class: "pointer-events-none absolute right-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" }
         }
     }
 }

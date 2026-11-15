@@ -2930,11 +2930,12 @@ checksum = "35fb2e5f958ec131621fdd531e9fc186ed768cbe395337403ae56c17a74c68ec"
 
 [[package]]
 name = "penguinfin"
-version = "1.1.0"
+version = "1.1.1"
 dependencies = [
  "chrono",
  "dioxus",
  "futures-channel",
+ "gtk",
  "rusqlite",
  "serde",
  "serde_json",

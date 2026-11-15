@@ -39,7 +39,7 @@ fn index_html(settings: &Settings) -> String {
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<meta name="color-scheme" content="light dark">
+<meta name="color-scheme" content="light">
 <title>PenguinFin</title>
 <style>{APP_CSS}</style>
 <style id="pf-scale">html {{ font-size: {size}; }}</style>
@@ -74,6 +74,12 @@ fn main() {
         .map_err(|e| format!("{}: {e}", path.display()));
     let settings = boot.as_ref().map(|(_, d)| d.settings.clone()).unwrap_or_default();
     app::set_boot(boot);
+
+    // The app sets its own GTK theme to match its light/dark setting (see app::match_gtk_theme),
+    // so native popups like dropdown lists don't follow a dark desktop theme. A GTK_THEME
+    // environment variable would override that, so clear it before GTK starts.
+    // SAFETY: still single-threaded here; nothing else reads the environment concurrently.
+    unsafe { std::env::remove_var("GTK_THEME") };
 
     let (bg_r, bg_g, bg_b) = if settings.dark_mode { (19, 19, 19) } else { (255, 255, 255) };
     let window = WindowBuilder::new()
