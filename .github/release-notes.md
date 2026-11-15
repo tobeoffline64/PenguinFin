@@ -1,4 +1,4 @@
-First release of PenguinFin, an offline personal finance planner for Linux.
+PenguinFin is an offline personal finance planner for Linux.
 
 ## Install (Ubuntu / any distro with Flatpak)
 
@@ -10,7 +10,13 @@ flatpak run io.github.tobeoffline64.PenguinFin
 
 The first install also pulls the GNOME 49 runtime from Flathub.
 
-## What's in 1.0.0
+## New in 1.1.0
+- **Interface size**: Auto (scales with the window) or S / M / L / XL, from the sidebar, Settings, or Ctrl + / Ctrl − / Ctrl 0
+- **Responsive layout**: content reflows to the available space; the sidebar collapses to icons when space is tight
+- **Natural scrolling** option (Settings → Preferences & interface)
+- **Loading skeletons** at startup and while projections are calculated
+
+## Features
 - Income, bills and recurring expenses on any schedule (weekly → yearly, or one-time), with end dates, yearly raises/price changes and autopay
 - Checking, savings, brokerage, 401(k), IRA, HSA and pension accounts, with contributions, employer match and manually priced holdings
 - Dashboard: net worth, monthly cash flow, savings rate, next 30 days of payments, spending by category

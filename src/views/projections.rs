@@ -6,7 +6,8 @@ use crate::ui::table::*;
 use crate::views::dashboard::PageHeader;
 use crate::widgets::*;
 use dioxus::prelude::*;
-use penguinfin::model::{Account, AccountKind, CashFlow, FlowKind, Frequency};
+use chrono::NaiveDate;
+use penguinfin::model::{Account, AccountGroup, AccountKind, AppData, CashFlow, FlowKind, Frequency};
 use penguinfin::projection::project;
 
 #[component]
@@ -22,58 +23,33 @@ pub fn ProjectionsPage() -> Element {
     let mut extra_invest = use_signal(String::new);
     let mut return_shift = use_signal(String::new);
 
-    let today = today();
-    let years = years_txt.read().trim().parse::<u32>().ok().filter(|y| (1..=80).contains(y)).unwrap_or(data.settings.projection_years);
+    let years = parse_years(&years_txt.read(), data.settings.projection_years);
+    let what_if = read_what_if(extra_income, extra_spend, extra_invest, return_shift);
 
-    // Build the what-if scenario on a copy of the data.
-    let mut scenario = data.clone();
-    let wi_income = parse_num(&extra_income.read()).unwrap_or(0.0);
-    let wi_spend = parse_num(&extra_spend.read()).unwrap_or(0.0);
-    let wi_invest = parse_num(&extra_invest.read()).unwrap_or(0.0);
-    let wi_ret = parse_num(&return_shift.read()).unwrap_or(0.0);
-    let what_if = wi_income != 0.0 || wi_spend != 0.0 || wi_invest != 0.0 || wi_ret != 0.0;
-    let mk = |kind, amount: f64| CashFlow {
-        id: -1,
-        kind,
-        name: "What-if".into(),
-        category: "What-if".into(),
-        amount,
-        frequency: Frequency::Monthly,
-        start_date: today,
-        end_date: None,
-        annual_change_pct: 0.0,
-        autopay: false,
-        notes: String::new(),
-    };
-    if wi_income != 0.0 {
-        scenario.flows.push(mk(FlowKind::Income, wi_income));
-    }
-    if wi_spend != 0.0 {
-        scenario.flows.push(mk(FlowKind::Expense, wi_spend));
-    }
-    if wi_invest != 0.0 {
-        scenario.accounts.push(Account {
-            id: -1,
-            name: "What-if investing".into(),
-            kind: AccountKind::Brokerage,
-            balance: 0.0,
-            annual_return_pct: 7.0,
-            monthly_contribution: wi_invest,
-            contribution_from_cash: true,
-            employer_match_monthly: 0.0,
-            notes: String::new(),
-        });
-    }
-    if wi_ret != 0.0 {
-        for a in scenario.accounts.iter_mut().filter(|a| a.kind.group() != penguinfin::model::AccountGroup::Cash) {
-            a.annual_return_pct += wi_ret;
+    // Both projections run on a worker thread; skeletons show until they're ready.
+    // Re-runs whenever the data, the year count or a what-if field changes.
+    let projections = use_resource(move || {
+        let data = store.data.read().clone();
+        let years = parse_years(&years_txt.read(), data.settings.projection_years);
+        let wi = read_what_if(extra_income, extra_spend, extra_invest, return_shift);
+        async move {
+            crate::app::off_thread(move || {
+                let today = today();
+                let base = project(&data, today, years);
+                let scenario = wi.is_active().then(|| project(&build_scenario(&data, &wi, today), today, years));
+                (base, scenario)
+            })
+            .await
         }
-    }
-
-    let base = project(&data, today, years);
-    let proj = if what_if { project(&scenario, today, years) } else { base.clone() };
+    });
+    let result = projections.read().clone();
+    let loading = result.is_none();
+    let (base, scenario) = result.unwrap_or_default();
+    let showing_what_if = scenario.is_some();
+    let proj = scenario.unwrap_or_else(|| base.clone());
     let yearly = proj.yearly();
     let base_yearly = base.yearly();
+    let what_if = what_if.is_active() && showing_what_if;
     let adj = |v: f64, f: f64| if real() { v / f } else { v };
     let labels: Vec<String> = yearly.iter().map(|y| y.year.to_string()).collect();
 
@@ -132,7 +108,11 @@ pub fn ProjectionsPage() -> Element {
                         span { class: "text-sm", "Show in today's dollars" }
                     }
                 }
-                LineChart { labels, series, currency: sym.clone() }
+                if loading {
+                    ChartSkeleton {}
+                } else {
+                    LineChart { labels, series, currency: sym.clone() }
+                }
             }
         }
 
@@ -141,7 +121,7 @@ pub fn ProjectionsPage() -> Element {
                 CardTitle { "What if…" }
                 CardDescription { "Try changes without saving them. Amounts are per month." }
             }
-            CardContent { class: "grid grid-cols-2 gap-4 lg:grid-cols-4",
+            CardContent { class: "grid grid-cols-2 gap-4 @3xl:grid-cols-4",
                 Field { label: "Extra income / month",
                     Input { placeholder: "0", value: extra_income(), oninput: move |e: FormEvent| extra_income.set(e.value()) } }
                 Field { label: "Extra spending / month",
@@ -153,9 +133,14 @@ pub fn ProjectionsPage() -> Element {
             }
         }
 
-        div { class: "grid grid-cols-2 gap-4 lg:grid-cols-4",
+        div { class: "grid grid-cols-2 gap-4 @3xl:grid-cols-4",
+            if loading {
+                for m in milestones.iter().copied() {
+                    Stat { key: "{m}", label: format!("In {m} year{}", if m == 1 { "" } else { "s" }), value: "", loading: true }
+                }
+            }
             for m in milestones.iter().copied() {
-                if let Some(pt) = proj.at_years(m) {
+                if let Some(pt) = proj.at_years(m).filter(|_| !loading) {
                     Stat {
                         key: "{m}",
                         label: format!("In {m} year{}", if m == 1 { "" } else { "s" }),
@@ -172,7 +157,10 @@ pub fn ProjectionsPage() -> Element {
         Card {
             CardHeader { CardTitle { "Year by year" } CardDescription { "Totals for each calendar year; balances at year end." } }
             CardContent {
-                TableWrapper { class: "max-h-[480px]",
+                if loading {
+                    TableSkeleton { rows: 8 }
+                } else {
+                TableWrapper { class: "max-h-[30rem]",
                     Table {
                         TableHeader {
                             TableRow {
@@ -203,9 +191,77 @@ pub fn ProjectionsPage() -> Element {
                         }
                     }
                 }
+                }
                 p { class: "mt-3 text-xs text-muted-foreground",
                     "Projections are estimates, not advice. They ignore taxes on withdrawals, market swings and fees unless you include them in your return assumptions." }
             }
         }
     }
+}
+
+fn parse_years(text: &str, default: u32) -> u32 {
+    text.trim().parse::<u32>().ok().filter(|y| (1..=80).contains(y)).unwrap_or(default)
+}
+
+/// Unsaved what-if adjustments, per month.
+#[derive(Clone, Copy, PartialEq, Default)]
+struct WhatIf {
+    income: f64,
+    spend: f64,
+    invest: f64,
+    return_shift: f64,
+}
+
+impl WhatIf {
+    fn is_active(&self) -> bool {
+        self.income != 0.0 || self.spend != 0.0 || self.invest != 0.0 || self.return_shift != 0.0
+    }
+}
+
+fn read_what_if(income: Signal<String>, spend: Signal<String>, invest: Signal<String>, shift: Signal<String>) -> WhatIf {
+    let n = |s: Signal<String>| parse_num(&s.read()).unwrap_or(0.0);
+    WhatIf { income: n(income), spend: n(spend), invest: n(invest), return_shift: n(shift) }
+}
+
+/// A copy of the data with the what-if adjustments applied.
+fn build_scenario(data: &AppData, wi: &WhatIf, today: NaiveDate) -> AppData {
+    let mut scenario = data.clone();
+    let mk = |kind, amount: f64| CashFlow {
+        id: -1,
+        kind,
+        name: "What-if".into(),
+        category: "What-if".into(),
+        amount,
+        frequency: Frequency::Monthly,
+        start_date: today,
+        end_date: None,
+        annual_change_pct: 0.0,
+        autopay: false,
+        notes: String::new(),
+    };
+    if wi.income != 0.0 {
+        scenario.flows.push(mk(FlowKind::Income, wi.income));
+    }
+    if wi.spend != 0.0 {
+        scenario.flows.push(mk(FlowKind::Expense, wi.spend));
+    }
+    if wi.invest != 0.0 {
+        scenario.accounts.push(Account {
+            id: -1,
+            name: "What-if investing".into(),
+            kind: AccountKind::Brokerage,
+            balance: 0.0,
+            annual_return_pct: 7.0,
+            monthly_contribution: wi.invest,
+            contribution_from_cash: true,
+            employer_match_monthly: 0.0,
+            notes: String::new(),
+        });
+    }
+    if wi.return_shift != 0.0 {
+        for a in scenario.accounts.iter_mut().filter(|a| a.kind.group() != AccountGroup::Cash) {
+            a.annual_return_pct += wi.return_shift;
+        }
+    }
+    scenario
 }

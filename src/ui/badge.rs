@@ -45,7 +45,7 @@ impl BadgeSize {
     const fn as_str(&self) -> &'static str {
         match self {
             Self::Default => "px-2.5 py-0.5 text-xs",
-            Self::Sm => "px-1.5 py-0.5 text-[10px]",
+            Self::Sm => "px-1.5 py-0.5 text-[0.625rem]",
             Self::Lg => "px-3 py-1 text-sm",
         }
     }

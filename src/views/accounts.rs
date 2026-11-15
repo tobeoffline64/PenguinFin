@@ -107,15 +107,15 @@ pub fn AccountsPage() -> Element {
         PageHeader { title: "Accounts & investments",
             subtitle: "Checking, savings, brokerage and retirement accounts. Net income lands in your first checking account in projections." }
 
-        div { class: "grid grid-cols-2 gap-4 lg:grid-cols-4",
+        div { class: "grid grid-cols-2 gap-4 @3xl:grid-cols-4",
             Stat { label: "Net worth", value: money(data.net_worth(), &sym) }
             Stat { label: "Cash", value: money(data.group_total(AccountGroup::Cash), &sym) }
             Stat { label: "Investments", value: money(data.group_total(AccountGroup::Investments), &sym) }
             Stat { label: "Retirement", value: money(data.group_total(AccountGroup::Retirement), &sym) }
         }
 
-        div { class: "grid gap-6 xl:grid-cols-3",
-            div { class: "flex flex-col gap-6 xl:col-span-2",
+        div { class: "grid gap-6 @5xl:grid-cols-3",
+            div { class: "flex flex-col gap-6 @5xl:col-span-2",
                 if data.accounts.is_empty() {
                     EmptyState { title: "No accounts yet", text: "Add your checking account first: projected leftover cash collects there." }
                 }
@@ -367,7 +367,7 @@ fn HoldingRow(holding: Holding, sym: String) -> Element {
         TableRow {
             TableCell { class: "font-medium",
                 "{holding.symbol}"
-                if !updated.is_empty() { div { class: "text-[10px] font-normal text-muted-foreground", "price {updated}" } }
+                if !updated.is_empty() { div { class: "text-[0.625rem] font-normal text-muted-foreground", "price {updated}" } }
             }
             TableCell { class: "text-right",
                 Input { class: "h-7 w-24 ml-auto text-right", value: shares(), oninput: move |e: FormEvent| shares.set(e.value()) }

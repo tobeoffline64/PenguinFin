@@ -180,8 +180,8 @@ pub fn FlowsPage(kind: FlowKind) -> Element {
     rsx! {
         PageHeader { title: t.title, subtitle: t.subtitle }
 
-        div { class: "grid gap-6 xl:grid-cols-3",
-            Card { class: "xl:col-span-2",
+        div { class: "grid gap-6 @5xl:grid-cols-3",
+            Card { class: "@5xl:col-span-2",
                 CardHeader {
                     CardTitle { "{flows.len()} item(s)" }
                     CardDescription { "About {money(monthly_total, &sym)} per month · {money(monthly_total * 12.0, &sym)} per year" }
@@ -251,7 +251,7 @@ pub fn FlowsPage(kind: FlowKind) -> Element {
                         div { class: "flex flex-wrap gap-1",
                             for c in t.categories.iter() {
                                 button {
-                                    class: "cursor-pointer rounded-full border px-2 py-0.5 text-[11px] text-muted-foreground hover:bg-accent",
+                                    class: "cursor-pointer rounded-full border px-2 py-0.5 text-[0.6875rem] text-muted-foreground hover:bg-accent",
                                     onclick: move |_| { form.write().category = c.to_string(); generation += 1; },
                                     "{c}"
                                 }

@@ -21,6 +21,11 @@
   <developer id="io.github.tobeoffline64"><name>tobeoffline64</name></developer>
   <content_rating type="oars-1.1"/>
   <releases>
+    <release version="1.1.0" date="2026-11-15">
+      <description>
+        <p>Interface size control with automatic fit-to-window, natural scrolling, a responsive layout and loading skeletons.</p>
+      </description>
+    </release>
     <release version="1.0.0" date="2026-11-15"/>
   </releases>
 </component>

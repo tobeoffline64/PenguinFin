@@ -337,12 +337,102 @@ impl Holding {
     }
 }
 
+/// Interface size. `Auto` scales with the window; the others are fixed.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub enum UiScale {
+    #[default]
+    Auto,
+    Small,
+    Medium,
+    Large,
+    ExtraLarge,
+}
+
+impl UiScale {
+    pub const ALL: [UiScale; 5] =
+        [UiScale::Auto, UiScale::Small, UiScale::Medium, UiScale::Large, UiScale::ExtraLarge];
+    /// Fixed sizes in ascending order (used by the +/- controls).
+    const STEPS: [UiScale; 4] = [UiScale::Small, UiScale::Medium, UiScale::Large, UiScale::ExtraLarge];
+
+    pub fn key(self) -> &'static str {
+        match self {
+            UiScale::Auto => "auto",
+            UiScale::Small => "s",
+            UiScale::Medium => "m",
+            UiScale::Large => "l",
+            UiScale::ExtraLarge => "xl",
+        }
+    }
+
+    pub fn from_key(s: &str) -> Option<Self> {
+        Self::ALL.into_iter().find(|k| k.key() == s)
+    }
+
+    pub fn label(self) -> &'static str {
+        match self {
+            UiScale::Auto => "Auto",
+            UiScale::Small => "S",
+            UiScale::Medium => "M",
+            UiScale::Large => "L",
+            UiScale::ExtraLarge => "XL",
+        }
+    }
+
+    pub fn long_label(self) -> &'static str {
+        match self {
+            UiScale::Auto => "Auto (fit window)",
+            UiScale::Small => "Small",
+            UiScale::Medium => "Medium",
+            UiScale::Large => "Large",
+            UiScale::ExtraLarge => "Extra large",
+        }
+    }
+
+    /// CSS `font-size` for the root element. Every size in the UI is in rem, so this
+    /// scales the whole interface. `Auto` grows with the window's width and height.
+    pub fn root_font_size(self) -> &'static str {
+        match self {
+            UiScale::Auto => "clamp(13px, min(calc(8px + 0.55vw), calc(6px + 1.1vh)), 20px)",
+            UiScale::Small => "14px",
+            UiScale::Medium => "16px",
+            UiScale::Large => "18px",
+            UiScale::ExtraLarge => "20px",
+        }
+    }
+
+    /// One step bigger. From `Auto`, goes to Large.
+    pub fn bigger(self) -> Self {
+        match self {
+            UiScale::Auto => UiScale::Large,
+            s => {
+                let i = Self::STEPS.iter().position(|x| *x == s).unwrap_or(1);
+                Self::STEPS[(i + 1).min(Self::STEPS.len() - 1)]
+            }
+        }
+    }
+
+    /// One step smaller. From `Auto`, goes to Small.
+    pub fn smaller(self) -> Self {
+        match self {
+            UiScale::Auto => UiScale::Small,
+            s => {
+                let i = Self::STEPS.iter().position(|x| *x == s).unwrap_or(1);
+                Self::STEPS[i.saturating_sub(1)]
+            }
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
 pub struct Settings {
     pub projection_years: u32,
     pub inflation_pct: f64,
     pub currency_symbol: String,
     pub dark_mode: bool,
+    pub ui_scale: UiScale,
+    /// Reverse the scroll direction (content follows the fingers, like a phone).
+    pub natural_scroll: bool,
 }
 
 impl Default for Settings {
@@ -352,6 +442,8 @@ impl Default for Settings {
             inflation_pct: 3.0,
             currency_symbol: "$".into(),
             dark_mode: false,
+            ui_scale: UiScale::Auto,
+            natural_scroll: false,
         }
     }
 }
@@ -471,6 +563,26 @@ mod tests {
         assert!(occ.len() == 4 || occ.len() == 5);
         assert!(occ.iter().all(|x| (*x - d(2000, 1, 3)).num_days() % 7 == 0));
         assert_eq!(f.next_due(d(2026, 3, 1)), occ.first().copied());
+    }
+
+    #[test]
+    fn ui_scale_steps() {
+        assert_eq!(UiScale::Auto.bigger(), UiScale::Large);
+        assert_eq!(UiScale::Auto.smaller(), UiScale::Small);
+        assert_eq!(UiScale::ExtraLarge.bigger(), UiScale::ExtraLarge);
+        assert_eq!(UiScale::Small.smaller(), UiScale::Small);
+        assert_eq!(UiScale::Medium.bigger(), UiScale::Large);
+        for s in UiScale::ALL {
+            assert_eq!(UiScale::from_key(s.key()), Some(s));
+        }
+    }
+
+    #[test]
+    fn old_backups_without_new_settings_still_load() {
+        let s: Settings = serde_json::from_str(r#"{"projection_years":20,"inflation_pct":2.5,"currency_symbol":"$","dark_mode":true}"#).unwrap();
+        assert_eq!(s.projection_years, 20);
+        assert_eq!(s.ui_scale, UiScale::Auto);
+        assert!(!s.natural_scroll);
     }
 
     #[test]

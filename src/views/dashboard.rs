@@ -15,6 +15,15 @@ pub fn Dashboard(on_nav: EventHandler<Page>) -> Element {
     let sym = data.settings.currency_symbol.clone();
     let today = today();
 
+    // The projection runs on a worker thread; the chart shows a skeleton until it's ready.
+    let projection = use_resource(move || {
+        let data = store.data.read().clone();
+        async move {
+            let years = data.settings.projection_years.max(1);
+            crate::app::off_thread(move || project(&data, crate::app::today(), years)).await
+        }
+    });
+
     if data.flows.is_empty() && data.accounts.is_empty() {
         return rsx! {
             PageHeader { title: "Welcome to PenguinFin", subtitle: "Plan bills, recurring expenses, income and investments, all offline." }
@@ -49,7 +58,9 @@ pub fn Dashboard(on_nav: EventHandler<Page>) -> Element {
     let savings_rate = if income > 0.0 { saved / income * 100.0 } else { 0.0 };
 
     let years = data.settings.projection_years.max(1);
-    let proj = project(&data, today, years);
+    let proj = projection.read().clone();
+    let loading = proj.is_none();
+    let proj = proj.unwrap_or_default();
     let yearly = proj.yearly();
     let labels: Vec<String> = yearly.iter().map(|y| y.year.to_string()).collect();
     let nw10 = proj.at_years(10.min(years)).map(|m| m.net_worth()).unwrap_or(0.0);
@@ -74,7 +85,7 @@ pub fn Dashboard(on_nav: EventHandler<Page>) -> Element {
             }
         }
 
-        div { class: "grid grid-cols-2 gap-4 lg:grid-cols-4",
+        div { class: "grid grid-cols-2 gap-4 @3xl:grid-cols-4",
             Stat { label: "Net worth", value: money(data.net_worth(), &sym),
                 sub: format!("Cash {} · Invest {} · Retire {}",
                     money_short(data.group_total(AccountGroup::Cash), &sym),
@@ -88,8 +99,8 @@ pub fn Dashboard(on_nav: EventHandler<Page>) -> Element {
                 sub: format!("After {} moved to savings/investing", money(cash_contrib, &sym)) }
             Stat { label: "Savings rate", value: format!("{savings_rate:.0}%"), sub: "Contributions + leftover cash, as % of income" }
             Stat { label: "Paycheck + employer", value: money(payroll_contrib + match_total, &sym), sub: "Monthly into retirement from payroll & match" }
-            Stat { label: format!("Net worth in {} yrs", 10.min(years)), value: money(nw10, &sym), sub: "Projected, nominal dollars" }
-            Stat { label: format!("Net worth in {years} yrs"), value: money(nw_end, &sym),
+            Stat { label: format!("Net worth in {} yrs", 10.min(years)), value: money(nw10, &sym), sub: "Projected, nominal dollars", loading }
+            Stat { label: format!("Net worth in {years} yrs"), value: money(nw_end, &sym), loading,
                 sub: format!("{} in today's dollars", money(nw_end / proj.months.last().map(|m| m.inflation_factor).unwrap_or(1.0), &sym)) }
         }
 
@@ -99,6 +110,9 @@ pub fn Dashboard(on_nav: EventHandler<Page>) -> Element {
                 CardDescription { "Year-end balances using your income, bills, expenses, contributions and expected returns." }
             }
             CardContent {
+                if loading {
+                    ChartSkeleton {}
+                } else {
                 LineChart {
                     labels: labels.clone(),
                     currency: sym.clone(),
@@ -109,11 +123,12 @@ pub fn Dashboard(on_nav: EventHandler<Page>) -> Element {
                         Series { name: "Cash".into(), color: "var(--chart-1)".into(), values: yearly.iter().map(|y| y.cash).collect(), bold: false },
                     ],
                 }
+                }
             }
         }
 
-        div { class: "grid gap-6 lg:grid-cols-5",
-            Card { class: "lg:col-span-3",
+        div { class: "grid gap-6 @3xl:grid-cols-5",
+            Card { class: "@3xl:col-span-3",
                 CardHeader {
                     CardTitle { "Next 30 days" }
                     CardDescription { "In {money(up_in, &sym)} · Out {money(up_out, &sym)}" }
@@ -145,7 +160,7 @@ pub fn Dashboard(on_nav: EventHandler<Page>) -> Element {
                     }
                 }
             }
-            Card { class: "lg:col-span-2",
+            Card { class: "@3xl:col-span-2",
                 CardHeader {
                     CardTitle { "Monthly spending by category" }
                     CardDescription { "Bills and recurring expenses, monthly average" }

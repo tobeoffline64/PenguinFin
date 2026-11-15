@@ -8,7 +8,7 @@ Built in **Rust** with **[Dioxus](https://dioxuslabs.com) desktop** and componen
 **[Rust/UI](https://github.com/rust-ui/ui)** (Tailwind CSS v4). Data is stored in a single local
 **SQLite** file. The app makes no network requests.
 
-## Features (v1)
+## Features
 
 - **Income, Bills, Recurring expenses**: weekly, every 2 weeks, twice a month, monthly, quarterly,
   twice a year, yearly or one-time; start/due date, optional end date (for example when a car loan ends),
@@ -23,6 +23,11 @@ Built in **Rust** with **[Dioxus](https://dioxuslabs.com) desktop** and componen
   extra spending, extra investing, lower/higher returns) that are not saved.
 - **Settings & data**: currency symbol, inflation, dark mode, JSON backup/restore (in `~/Downloads`),
   sample data, erase all.
+- **Interface**: UI size *Auto* (scales with the window) or S / M / L / XL, from the sidebar, Settings,
+  or Ctrl + / Ctrl − / Ctrl 0. The layout reflows to the space it has, and the sidebar collapses to icons
+  when it's tight. Optional **natural scrolling** (reversed wheel/touchpad direction).
+- **Loading skeletons** while the window starts up and while projections are calculated (shown only if a
+  calculation takes more than ~150 ms, so quick updates don't flicker).
 
 ### How projections work
 Each month: every account grows by its own expected return, then receives its contribution and match.
@@ -73,6 +78,8 @@ cargo test
 ```
 
 `PENGUINFIN_DB=/path/to/file.db cargo run` uses a different database.
+`PENGUINFIN_WINDOW_SIZE=900x700` sets the initial window size (handy for checking layouts), and in debug
+builds `PENGUINFIN_SLOW=1` delays background work so loading states can be inspected.
 `cargo run --example seed -- /path/to/file.db` fills one with sample data.
 
 Build the flatpak bundle yourself (needs `sudo apt install flatpak flatpak-builder` and Rust from rustup.rs):

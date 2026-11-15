@@ -214,6 +214,8 @@ impl Db {
             inflation_pct: self.setting("inflation_pct")?.and_then(|v| v.parse().ok()).unwrap_or(d.inflation_pct),
             currency_symbol: self.setting("currency_symbol")?.unwrap_or(d.currency_symbol),
             dark_mode: self.setting("dark_mode")?.map(|v| v == "1").unwrap_or(d.dark_mode),
+            ui_scale: self.setting("ui_scale")?.and_then(|v| UiScale::from_key(&v)).unwrap_or(d.ui_scale),
+            natural_scroll: self.setting("natural_scroll")?.map(|v| v == "1").unwrap_or(d.natural_scroll),
         })
     }
 
@@ -349,6 +351,8 @@ impl Db {
             ("inflation_pct", s.inflation_pct.to_string()),
             ("currency_symbol", s.currency_symbol.clone()),
             ("dark_mode", if s.dark_mode { "1".into() } else { "0".into() }),
+            ("ui_scale", s.ui_scale.key().to_string()),
+            ("natural_scroll", if s.natural_scroll { "1".into() } else { "0".into() }),
         ];
         for (k, v) in pairs {
             self.conn
@@ -408,7 +412,10 @@ mod tests {
     fn roundtrip_everything() {
         let mut db = Db::open_in_memory().unwrap();
         let today = NaiveDate::from_ymd_opt(2026, 11, 15).unwrap();
-        let data = crate::sample::sample_data(today);
+        let mut data = crate::sample::sample_data(today);
+        data.settings.ui_scale = UiScale::Large;
+        data.settings.natural_scroll = true;
+        data.settings.dark_mode = true;
         db.replace_all(&data).unwrap();
         let loaded = db.load().unwrap();
         assert_eq!(loaded.flows.len(), data.flows.len());

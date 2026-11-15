@@ -147,6 +147,8 @@ pub fn Stat(
     #[props(into)] value: String,
     #[props(into, optional)] sub: Option<String>,
     #[props(into, default)] tone: String,
+    /// Show a skeleton instead of the value/sub text (value still being calculated).
+    #[props(default)] loading: bool,
 ) -> Element {
     let color = match tone.as_str() {
         "good" => "text-success",
@@ -157,9 +159,14 @@ pub fn Stat(
         Card { size: CardSize::Sm, class: "gap-1",
             CardContent { class: "flex flex-col gap-1",
                 span { class: "text-xs font-medium uppercase tracking-wide text-muted-foreground", "{label}" }
-                span { class: "text-2xl font-semibold tabular-nums {color}", "{value}" }
-                if let Some(s) = sub {
-                    span { class: "text-xs text-muted-foreground", "{s}" }
+                if loading {
+                    LoadingBlock { class: "h-8 w-32" }
+                    LoadingBlock { class: "h-3 w-40" }
+                } else {
+                    span { class: "text-2xl font-semibold tabular-nums {color}", "{value}" }
+                    if let Some(s) = sub {
+                        span { class: "text-xs text-muted-foreground", "{s}" }
+                    }
                 }
             }
         }
@@ -329,5 +336,45 @@ mod tests {
         assert_eq!(parse_num("$1,200.50"), Some(1200.5));
         assert_eq!(parse_num(""), None);
         assert_eq!(parse_num("abc"), None);
+    }
+}
+
+// ---------- loading skeletons ----------
+
+/// A pulsing placeholder that only fades in if loading takes longer than ~150 ms,
+/// so fast loads don't flash.
+#[component]
+pub fn LoadingBlock(#[props(into, default)] class: String) -> Element {
+    rsx! {
+        div { class: "pf-delayed", aria_busy: "true",
+            crate::ui::skeleton::Skeleton { class: "bg-secondary {class}" }
+        }
+    }
+}
+
+/// Placeholder with the same footprint as `LineChart` (legend row + 3:1 plot).
+#[component]
+pub fn ChartSkeleton() -> Element {
+    rsx! {
+        div { class: "pf-delayed flex flex-col gap-2", aria_busy: "true", aria_label: "Calculating projection",
+            div { class: "flex gap-4",
+                for w in ["w-20", "w-20", "w-24", "w-14"] {
+                    crate::ui::skeleton::Skeleton { class: "h-4 bg-secondary {w}" }
+                }
+            }
+            crate::ui::skeleton::Skeleton { class: "aspect-[3/1] w-full bg-secondary" }
+        }
+    }
+}
+
+/// Placeholder rows for a table that is still being calculated.
+#[component]
+pub fn TableSkeleton(rows: usize) -> Element {
+    rsx! {
+        div { class: "pf-delayed flex flex-col gap-2", aria_busy: "true",
+            for i in 0..rows {
+                crate::ui::skeleton::Skeleton { key: "{i}", class: "h-8 w-full bg-secondary" }
+            }
+        }
     }
 }

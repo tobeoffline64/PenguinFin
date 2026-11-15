@@ -7,22 +7,84 @@ mod views;
 mod widgets;
 
 use dioxus::desktop::{Config, LogicalSize, WindowBuilder};
+use penguinfin::db::{Db, default_db_path};
+use penguinfin::model::Settings;
 
 /// Tailwind output, generated from `style/app.css` (see README).
 const APP_CSS: &str = include_str!("../assets/app.css");
 
+/// Shown while the webview starts and connects to the app (the window would otherwise
+/// be blank for a moment). Hidden by CSS as soon as the app renders into `#main`.
+const BOOT_SKELETON: &str = r#"<div id="boot" aria-hidden="true" class="@container/app fixed inset-0 flex bg-background">
+  <div class="flex w-14 @5xl/app:w-60 shrink-0 flex-col gap-3 border-r bg-sidenav p-3">
+    <div class="pf-sk h-10 rounded-md"></div>
+    <div class="pf-sk h-8 rounded-md"></div><div class="pf-sk h-8 rounded-md"></div>
+    <div class="pf-sk h-8 rounded-md"></div><div class="pf-sk h-8 rounded-md"></div>
+    <div class="pf-sk h-8 rounded-md"></div><div class="pf-sk h-8 rounded-md"></div>
+  </div>
+  <div class="@container flex flex-1 flex-col gap-6 p-4 @3xl:p-8">
+    <div class="pf-sk h-8 w-56 rounded-md"></div>
+    <div class="grid grid-cols-2 gap-4 @3xl:grid-cols-4">
+      <div class="pf-sk h-24 rounded-xl"></div><div class="pf-sk h-24 rounded-xl"></div>
+      <div class="pf-sk h-24 rounded-xl"></div><div class="pf-sk h-24 rounded-xl"></div>
+    </div>
+    <div class="pf-sk flex-1 rounded-xl"></div>
+  </div>
+</div>"#;
+
+fn index_html(settings: &Settings) -> String {
+    format!(
+        r#"<!DOCTYPE html>
+<html class="{dark}">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="color-scheme" content="light dark">
+<title>PenguinFin</title>
+<style>{APP_CSS}</style>
+<style id="pf-scale">html {{ font-size: {size}; }}</style>
+</head>
+<body>
+{BOOT_SKELETON}
+<div id="main"></div>
+</body>
+</html>"#,
+        dark = if settings.dark_mode { "dark" } else { "" },
+        size = settings.ui_scale.root_font_size(),
+    )
+}
+
+/// Initial window size; `PENGUINFIN_WINDOW_SIZE=WxH` overrides it (handy for testing layouts).
+fn initial_size() -> LogicalSize<f64> {
+    std::env::var("PENGUINFIN_WINDOW_SIZE")
+        .ok()
+        .and_then(|v| {
+            let (w, h) = v.split_once('x')?;
+            Some(LogicalSize::new(w.trim().parse().ok()?, h.trim().parse().ok()?))
+        })
+        .unwrap_or(LogicalSize::new(1280.0, 860.0))
+}
+
 fn main() {
-    let head = format!(
-        r#"<meta name="color-scheme" content="light dark"><title>PenguinFin</title><style>{APP_CSS}</style>"#
-    );
+    // Open the database before the window appears, so the first frame already uses the
+    // saved theme and UI size. The App takes ownership of it in `app::App`.
+    let path = std::env::var_os("PENGUINFIN_DB").map(std::path::PathBuf::from).unwrap_or_else(default_db_path);
+    let boot = Db::open(&path)
+        .and_then(|db| db.load().map(|d| (db, d)))
+        .map_err(|e| format!("{}: {e}", path.display()));
+    let settings = boot.as_ref().map(|(_, d)| d.settings.clone()).unwrap_or_default();
+    app::set_boot(boot);
+
+    let (bg_r, bg_g, bg_b) = if settings.dark_mode { (19, 19, 19) } else { (255, 255, 255) };
     let window = WindowBuilder::new()
         .with_title("PenguinFin")
-        .with_inner_size(LogicalSize::new(1280.0, 860.0))
-        .with_min_inner_size(LogicalSize::new(900.0, 600.0));
+        .with_inner_size(initial_size())
+        .with_min_inner_size(LogicalSize::new(720.0, 540.0));
     let cfg = Config::new()
         .with_window(window)
         .with_menu(None)
-        .with_custom_head(head)
+        .with_custom_index(index_html(&settings))
+        .with_background_color((bg_r, bg_g, bg_b, 255))
         .with_data_directory(penguinfin::db::data_dir().join("webview"))
         .with_disable_context_menu(!cfg!(debug_assertions));
     dioxus::LaunchBuilder::desktop().with_cfg(cfg).launch(app::App);

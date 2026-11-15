@@ -8,7 +8,7 @@ use crate::views::dashboard::PageHeader;
 use crate::widgets::*;
 use dioxus::prelude::*;
 use penguinfin::db::{export_json, import_json};
-use penguinfin::model::AppData;
+use penguinfin::model::{AppData, UiScale};
 use std::path::PathBuf;
 
 /// Where backups go: the user's Downloads folder (the flatpak is granted access to it).
@@ -47,6 +47,7 @@ pub fn SettingsPage() -> Element {
     let db_path = store.db_path();
 
     let s_dark = settings.clone();
+    let s_scroll = settings.clone();
     let s_save = settings.clone();
     let save = move |_| {
         let mut s = s_save.clone();
@@ -87,9 +88,9 @@ pub fn SettingsPage() -> Element {
         PageHeader { title: "Settings & data" }
 
         Card {
-            CardHeader { CardTitle { "Preferences" } }
+            CardHeader { CardTitle { "Preferences & interface" } }
             CardContent { class: "flex flex-col gap-4",
-                div { class: "grid grid-cols-1 gap-4 md:grid-cols-3",
+                div { class: "grid grid-cols-1 gap-4 @2xl:grid-cols-3",
                     Field { label: "Currency symbol",
                         Input { value: currency(), oninput: move |e: FormEvent| currency.set(e.value()) } }
                     Field { label: "Inflation % per year", hint: "Used for 'today's dollars' and as the default for new expenses",
@@ -108,6 +109,45 @@ pub fn SettingsPage() -> Element {
                         onchange: move |v| {
                             let mut s = s_dark.clone();
                             s.dark_mode = v;
+                            store.mutate("", |db| db.save_settings(&s));
+                        } }
+                }
+                Separator {}
+                div { class: "flex flex-wrap items-center justify-between gap-3",
+                    div {
+                        div { class: "text-sm font-medium", "Interface size" }
+                        div { class: "text-xs text-muted-foreground",
+                            "Auto scales everything to fit the window. Shortcuts: Ctrl + bigger, Ctrl − smaller, Ctrl 0 auto." }
+                    }
+                    div { class: "inline-flex rounded-lg bg-muted p-1", role: "radiogroup", aria_label: "Interface size",
+                        for opt in UiScale::ALL {
+                            button {
+                                key: "{opt.key()}",
+                                role: "radio",
+                                aria_checked: "{settings.ui_scale == opt}",
+                                title: opt.long_label(),
+                                class: if settings.ui_scale == opt {
+                                    "rounded-md bg-background px-3 py-1 text-sm font-medium shadow-sm"
+                                } else {
+                                    "rounded-md px-3 py-1 text-sm text-muted-foreground hover:text-foreground cursor-pointer"
+                                },
+                                onclick: move |_| crate::app::set_ui_scale(&mut store, opt),
+                                "{opt.label()}"
+                            }
+                        }
+                    }
+                }
+                Separator {}
+                div { class: "flex items-center justify-between gap-3",
+                    div {
+                        div { class: "text-sm font-medium", "Natural scrolling" }
+                        div { class: "text-xs text-muted-foreground",
+                            "Content moves with your fingers, like a phone. Leave off if your system already uses natural scrolling." }
+                    }
+                    Switch { checked: settings.natural_scroll, aria_label: "Natural scrolling",
+                        onchange: move |v| {
+                            let mut s = s_scroll.clone();
+                            s.natural_scroll = v;
                             store.mutate("", |db| db.save_settings(&s));
                         } }
                 }

@@ -1,13 +1,13 @@
 [package]
 name = "penguinfin"
-version = "1.0.0"
+version = "1.1.0"
 edition = "2024"
 description = "Offline personal finance planner: recurring expenses, bills, income and investment projections"
 license = "MIT"
 
 [dependencies]
 # Pinned like rust-ui/ui: 0.7.10 has no matching dioxus-desktop release.
-dioxus = { version = "=0.7.9", default-features = false, features = ["desktop", "launch", "macro", "html", "signals", "hooks"] }
+dioxus = { version = "=0.7.9", default-features = false, features = ["desktop", "launch", "macro", "html", "signals", "hooks", "document"] }
 tw_merge = { version = "0.1" }
 strum = { version = "0.28", features = ["derive"] }
 rusqlite = { version = "0.32", features = ["bundled"] }
