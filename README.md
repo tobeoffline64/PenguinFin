@@ -75,7 +75,7 @@ cargo test
 `PENGUINFIN_DB=/path/to/file.db cargo run` uses a different database.
 `cargo run --example seed -- /path/to/file.db` fills one with sample data.
 
-Build the flatpak bundle (needs `flatpak` and `flatpak-builder`):
+Build the flatpak bundle yourself (needs `sudo apt install flatpak flatpak-builder` and Rust from rustup.rs):
 
 ```bash
 ./build-flatpak.sh      # outputs dist/penguinfin.flatpak
