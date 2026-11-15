@@ -67,5 +67,5 @@ pub fn sample_data(today: NaiveDate) -> AppData {
         price_updated: Some(today),
     };
     let holdings = vec![hold(1, 3, "VTI", 30.0, 290.0), hold(2, 3, "VXUS", 40.0, 65.0)];
-    AppData { flows, accounts, holdings, settings: Settings::default() }
+    AppData { flows, accounts, holdings, settings: Settings::default(), ..Default::default() }
 }

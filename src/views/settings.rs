@@ -38,8 +38,10 @@ fn latest_backup() -> Option<PathBuf> {
 pub fn SettingsPage() -> Element {
     let mut store = use_store();
     let settings = store.data.read().settings.clone();
+    let fred_inflation = store.data.read().fred.inflation_source.indicator();
     let mut currency = use_signal(|| settings.currency_symbol.clone());
-    let mut inflation = use_signal(|| num_str(settings.inflation_pct));
+    // Only what the user typed; otherwise the current (possibly FRED-synced) value is kept.
+    let mut inflation = use_signal(|| None::<String>);
     let mut years = use_signal(|| settings.projection_years.to_string());
     let mut import_path = use_signal(|| latest_backup().map(|p| p.display().to_string()).unwrap_or_default());
     let mut confirm_erase = use_signal(|| false);
@@ -52,9 +54,13 @@ pub fn SettingsPage() -> Element {
     let save = move |_| {
         let mut s = s_save.clone();
         s.currency_symbol = currency.read().trim().chars().take(4).collect();
-        match parse_num(&inflation.read()) {
-            Some(v) if (-5.0..=30.0).contains(&v) => s.inflation_pct = v,
-            _ => return store.notify("Inflation must be a number between -5 and 30.", true),
+        // When inflation follows FRED, the field is read-only and keeps the synced value.
+        if fred_inflation.is_none() {
+            let typed = inflation.read().clone().unwrap_or_else(|| num_str(s.inflation_pct));
+            match parse_num(&typed) {
+                Some(v) if (-5.0..=30.0).contains(&v) => s.inflation_pct = v,
+                _ => return store.notify("Inflation must be a number between -5 and 30.", true),
+            }
         }
         match years.read().trim().parse::<u32>() {
             Ok(y) if (1..=80).contains(&y) => s.projection_years = y,
@@ -93,8 +99,21 @@ pub fn SettingsPage() -> Element {
                 div { class: "grid grid-cols-1 gap-4 @2xl:grid-cols-3",
                     Field { label: "Currency symbol",
                         Input { value: currency(), oninput: move |e: FormEvent| currency.set(e.value()) } }
-                    Field { label: "Inflation % per year", hint: "Used for 'today's dollars' and as the default for new expenses",
-                        Input { value: inflation(), oninput: move |e: FormEvent| inflation.set(e.value()) } }
+                    if let Some(ind) = fred_inflation {
+                        Field { label: "Inflation % per year",
+                            hint: format!("Following FRED: {}. Change this under Economic data below.", ind.label().to_lowercase()),
+                            // Keyed by value so it re-mounts (inputs are uncontrolled) when a sync changes it.
+                            for v in [num_str(settings.inflation_pct)] {
+                                Input { key: "fred-{v}", value: v.clone(), readonly: true }
+                            }
+                        }
+                    } else {
+                        Field { label: "Inflation % per year", hint: "Used for 'today's dollars' and as the default for new expenses",
+                            for v in [num_str(settings.inflation_pct)] {
+                                Input { key: "manual-{v}", value: v.clone(), oninput: move |e: FormEvent| inflation.set(Some(e.value())) }
+                            }
+                        }
+                    }
                     Field { label: "Default projection length (years)",
                         Input { value: years(), oninput: move |e: FormEvent| years.set(e.value()) } }
                 }
@@ -154,10 +173,12 @@ pub fn SettingsPage() -> Element {
             }
         }
 
+        FredCard {}
+
         Card {
             CardHeader {
                 CardTitle { "Your data" }
-                CardDescription { "Everything is stored in one SQLite file on this computer. Nothing is sent anywhere." }
+                CardDescription { "Everything is stored in one SQLite file on this computer. Your financial data never leaves it." }
             }
             CardContent { class: "flex flex-col gap-5",
                 Field { label: "Database file",
@@ -218,3 +239,144 @@ pub fn SettingsPage() -> Element {
 }
 
 use penguinfin::prices::PriceProvider as _;
+
+/// FRED economic data: API key, sync controls, inflation source and the latest values.
+#[component]
+fn FredCard() -> Element {
+    let mut store = use_store();
+    let fred = store.data.read().fred.clone();
+    let market = store.data.read().market.clone();
+    let syncing = (store.syncing)();
+    let mut key_text = use_signal(String::new);
+    let mut key_gen = use_signal(|| 0u32);
+    let source_options: Vec<(String, String)> =
+        InflationSource::ALL.iter().map(|s| (s.key().to_string(), s.label().to_string())).collect();
+
+    let save_config = move |store: &mut crate::app::Store, cfg: FredConfig, msg: &str| {
+        store.mutate(msg, |db| {
+            db.save_fred_config(&cfg)?;
+            crate::app::apply_market_inflation(db)
+        });
+    };
+
+    let fred_save = fred.clone();
+    let save_key = move |_| {
+        let k = key_text.read().trim().to_string();
+        if !fred::valid_api_key(&k) {
+            return store.notify("A FRED API key is 32 lowercase letters and digits.", true);
+        }
+        let cfg = FredConfig { api_key: k, ..fred_save.clone() };
+        save_config(&mut store, cfg, "FRED key saved");
+        key_text.set(String::new());
+        key_gen += 1;
+        crate::app::sync_market_data(store, true);
+    };
+    let fred_remove = fred.clone();
+    let fred_launch = fred.clone();
+    let fred_source = fred.clone();
+
+    rsx! {
+        Card {
+            CardHeader {
+                CardTitle { "Economic data (FRED)" }
+                CardDescription {
+                    "Optional. Pulls inflation, interest-rate and market figures from the St. Louis Fed's FRED service to keep your projection assumptions realistic. "
+                    "Only these public figures are downloaded; nothing about your finances is sent."
+                }
+            }
+            CardContent { class: "flex flex-col gap-5",
+                if fred.enabled() {
+                    div { class: "flex flex-wrap items-center justify-between gap-3",
+                        div {
+                            div { class: "text-sm font-medium", "API key" }
+                            div { class: "text-xs text-muted-foreground font-mono", "••••••••••••••••••••••••••••{key_tail(&fred.api_key)}" }
+                        }
+                        Button { variant: ButtonVariant::Ghost, class: "text-destructive",
+                            onclick: move |_| {
+                                let cfg = FredConfig { api_key: String::new(), ..fred_remove.clone() };
+                                save_config(&mut store, cfg, "FRED key removed; syncing is off");
+                            },
+                            "Remove key" }
+                    }
+                } else {
+                    div { class: "flex flex-col gap-2",
+                        div { class: "text-sm font-medium", "API key" }
+                        p { class: "text-xs text-muted-foreground",
+                            "Get a free key at "
+                            a { class: "underline", href: fred::KEY_SIGNUP_URL, target: "_blank", "{fred::KEY_SIGNUP_URL}" }
+                            " (create an account, then “Request API Key”), and paste it here."
+                        }
+                        div { class: "flex gap-2",
+                            for g in [key_gen()] {
+                                Input { key: "{g}", r#type: InputType::Password, placeholder: "32-character key",
+                                    oninput: move |e: FormEvent| key_text.set(e.value()) }
+                            }
+                            Button { onclick: save_key, "Save & sync" }
+                        }
+                    }
+                }
+
+                Separator {}
+                div { class: "flex flex-wrap items-center justify-between gap-3",
+                    div {
+                        div { class: "text-sm font-medium", "Sync" }
+                        div { class: "text-xs text-muted-foreground",
+                            if syncing { "Syncing…" }
+                            else if let Some(t) = &market.last_sync { "Last synced {t}" }
+                            else { "Never synced" }
+                        }
+                    }
+                    div { class: "flex items-center gap-4",
+                        div { class: "flex items-center gap-2",
+                            span { class: "text-sm", "On launch" }
+                            Switch { checked: fred.sync_on_launch, aria_label: "Sync when PenguinFin starts",
+                                onchange: move |v| {
+                                    let cfg = FredConfig { sync_on_launch: v, ..fred_launch.clone() };
+                                    save_config(&mut store, cfg, "");
+                                } }
+                        }
+                        Button { variant: ButtonVariant::Outline, disabled: syncing || !fred.enabled(),
+                            onclick: move |_| crate::app::sync_market_data(store, true),
+                            if syncing { "Syncing…" } else { "Sync now" } }
+                    }
+                }
+                if let Some(err) = &market.last_error {
+                    p { class: "text-xs text-destructive", "Last sync problem: {err}" }
+                }
+
+                Field { label: "Inflation assumption",
+                    hint: "Used for projections in today's dollars and as the default for new expenses.",
+                    NativeSelect {
+                        value: fred.inflation_source.key().to_string(),
+                        options: source_options,
+                        onchange: move |v: String| {
+                            if let Some(src) = InflationSource::from_key(&v) {
+                                let cfg = FredConfig { inflation_source: src, ..fred_source.clone() };
+                                save_config(&mut store, cfg, "");
+                            }
+                        },
+                    }
+                }
+
+                if !market.values.is_empty() {
+                    div { class: "grid grid-cols-1 gap-3 @2xl:grid-cols-2 @5xl:grid-cols-3",
+                        for v in market.values.iter() {
+                            div { key: "{v.indicator.key()}", class: "rounded-lg border p-3",
+                                div { class: "text-xs text-muted-foreground", "{v.indicator.label()}" }
+                                div { class: "text-xl font-semibold tabular-nums", "{v.value:.2}%" }
+                                div { class: "text-xs text-muted-foreground", "{v.indicator.note()} As of {v.as_of.format(\"%b %-d, %Y\")}." }
+                            }
+                        }
+                    }
+                    p { class: "text-xs text-muted-foreground", "Source: FRED®, Federal Reserve Bank of St. Louis." }
+                }
+            }
+        }
+    }
+}
+
+fn key_tail(key: &str) -> &str {
+    &key[key.len().saturating_sub(4)..]
+}
+
+use penguinfin::fred::{self, FredConfig, InflationSource};

@@ -1,6 +1,7 @@
 use crate::views;
 use crate::widgets::{Icon, IconName};
 use dioxus::prelude::*;
+use dioxus::dioxus_core::spawn_forever;
 use penguinfin::db::Db;
 use penguinfin::model::{AppData, UiScale};
 use std::sync::Mutex;
@@ -28,6 +29,8 @@ pub struct Store {
     db: Signal<Db>,
     pub data: Signal<AppData>,
     pub flash: Signal<Option<Flash>>,
+    /// True while a FRED sync is running.
+    pub syncing: Signal<bool>,
 }
 
 impl Store {
@@ -67,6 +70,12 @@ pub fn today() -> chrono::NaiveDate {
 
 type Boot = Result<(Db, AppData), String>;
 
+static PROCESS_START: std::sync::OnceLock<std::time::Instant> = std::sync::OnceLock::new();
+
+pub fn mark_process_start() {
+    let _ = PROCESS_START.set(std::time::Instant::now());
+}
+
 /// The database opened in `main` before the window exists, handed to `App` once.
 static BOOT: Mutex<Option<Boot>> = Mutex::new(None);
 
@@ -78,7 +87,7 @@ pub fn set_boot(boot: Boot) {
 pub fn App() -> Element {
     let opened: Result<Store, String> = use_hook(|| {
         let (db, data) = BOOT.lock().expect("boot lock").take().unwrap_or_else(|| Err("database was not opened".into()))?;
-        let store = Store { db: Signal::new(db), data: Signal::new(data), flash: Signal::new(None) };
+        let store = Store { db: Signal::new(db), data: Signal::new(data), flash: Signal::new(None), syncing: Signal::new(false) };
         provide_context(store);
         Ok(store)
     });
@@ -199,10 +208,25 @@ fn Shell() -> Element {
     use_hook(|| {
         if std::env::var_os("PENGUINFIN_PERF").is_some() {
             spawn(async move {
+                if let Some(t) = PROCESS_START.get() {
+                    // The probe is installed right after the first frame is committed.
+                    eprintln!("[perf] first frame committed {} ms after process start", t.elapsed().as_millis());
+                }
                 let mut perf = document::eval(PERF_JS);
                 while let Ok(line) = perf.recv::<String>().await {
                     eprintln!("[perf] {line}");
                 }
+            });
+        }
+    });
+
+    // FRED: refresh market data once per launch, after the first frame, in the background.
+    use_hook(move || {
+        let fred = store.data.peek().fred.clone();
+        if fred.enabled() && fred.sync_on_launch {
+            spawn_forever(async move {
+                sleep_ms(800).await;
+                sync_market_data(store, false);
             });
         }
     });
@@ -382,4 +406,57 @@ fn match_gtk_theme(dark: bool) {
     }
     #[cfg(not(target_os = "linux"))]
     let _ = dark;
+}
+
+/// Fetch FRED data on worker threads, then store it (and update the inflation assumption if
+/// it follows FRED). Never blocks the UI; does nothing if a sync is already running.
+/// `manual` = started from the Sync button, so report the outcome.
+pub fn sync_market_data(mut store: Store, manual: bool) {
+    if *store.syncing.peek() {
+        return;
+    }
+    let fred = store.data.peek().fred.clone();
+    if !fred.enabled() {
+        if manual {
+            store.notify("Add your FRED API key first.", true);
+        }
+        return;
+    }
+    store.syncing.set(true);
+    // spawn_forever: the sync keeps going if the user leaves the Settings page.
+    spawn_forever(async move {
+        let key = fred.api_key.clone();
+        let (values, error) = off_thread(move || {
+            penguinfin::fred::Client::new(&penguinfin::fred::base_url(), &key).fetch_all(today())
+        })
+        .await;
+        let now = chrono::Local::now().format("%Y-%m-%d %H:%M").to_string();
+        store.mutate("", |db| {
+            db.save_market_data(&values, &now, error.as_deref())?;
+            apply_market_inflation(db)
+        });
+        store.syncing.set(false);
+        if manual {
+            match (&error, values.is_empty()) {
+                (None, _) => store.notify(format!("Market data updated ({} indicators).", values.len()), false),
+                (Some(e), true) => store.notify(format!("FRED sync failed: {e}"), true),
+                (Some(e), false) => store.notify(format!("Updated {} indicators; some failed: {e}", values.len()), true),
+            }
+        }
+    });
+}
+
+/// If the inflation assumption follows a FRED indicator, copy its latest value (rounded to
+/// 0.1%) into the inflation setting used by projections.
+pub fn apply_market_inflation(db: &mut Db) -> Result<(), String> {
+    let data = db.load()?;
+    let Some(indicator) = data.fred.inflation_source.indicator() else { return Ok(()) };
+    let Some(v) = data.market.get(indicator) else { return Ok(()) };
+    let rounded = (v.value * 10.0).round() / 10.0;
+    if (data.settings.inflation_pct - rounded).abs() > f64::EPSILON {
+        let mut s = data.settings.clone();
+        s.inflation_pct = rounded;
+        db.save_settings(&s)?;
+    }
+    Ok(())
 }

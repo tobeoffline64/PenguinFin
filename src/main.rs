@@ -72,6 +72,7 @@ fn compat_rendering() -> bool {
 }
 
 fn main() {
+    app::mark_process_start();
     // Open the database before the window appears, so the first frame already uses the
     // saved theme and UI size. The App takes ownership of it in `app::App`.
     let path = std::env::var_os("PENGUINFIN_DB").map(std::path::PathBuf::from).unwrap_or_else(default_db_path);

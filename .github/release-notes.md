@@ -30,6 +30,13 @@ curl -fL -o /tmp/penguinfin.flatpak https://github.com/tobeoffline64/penguinfin/
 flatpak install --user -y --reinstall /tmp/penguinfin.flatpak
 ```
 
+## New in 1.3.0
+- **Economic data from FRED (optional).** Add a free API key in Settings → Economic data to pull 10-year expected inflation, current CPI inflation, the fed funds rate, the 10-year Treasury yield, the 30-year mortgage rate and the S&P 500's 10-year average return.
+  - Syncs in the background when PenguinFin starts (can be turned off) and on demand with **Sync now**. Startup and the UI never wait for it.
+  - Your inflation assumption can follow FRED automatically.
+  - Account forms show live guidance (fed funds rate for savings APY, S&P 500 return for investments), and Projections shows a market-context card.
+  - Only these public figures are downloaded; nothing about your finances is sent. The API key is never included in backups.
+
 ## New in 1.2.0
 - **Faster, more responsive UI.** Runs natively on Wayland with WebKit's GPU buffer path (previously forced through XWayland with it turned off), cheaper shadows that are much faster to paint, and forms that no longer re-render the whole page as you edit them.
 - **Account form adapts to the account type**: e.g. savings asks for APY and monthly transfers, a 401(k) for paycheck contributions and employer match, other assets for value and yearly change.

@@ -455,6 +455,12 @@ pub struct AppData {
     pub accounts: Vec<Account>,
     pub holdings: Vec<Holding>,
     pub settings: Settings,
+    /// FRED settings (includes the API key, so never written to backups).
+    #[serde(skip)]
+    pub fred: crate::fred::FredConfig,
+    /// Cached FRED values (re-fetched on sync, so not part of backups).
+    #[serde(skip)]
+    pub market: crate::fred::MarketData,
 }
 
 impl AppData {

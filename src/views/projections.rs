@@ -68,6 +68,10 @@ pub fn ProjectionsPage() -> Element {
             values: base_yearly.iter().map(|y| adj(y.net_worth(), y.inflation_factor)).collect(), bold: false });
     }
 
+    let inflation_source_note = match data.fred.inflation_source.indicator() {
+        Some(i) => format!(", {} from FRED", i.label().to_lowercase()),
+        None => String::new(),
+    };
     let milestones: Vec<u32> = [1u32, 5, 10, 15, 20, 25, 30, 40].into_iter().filter(|m| *m <= years).collect();
 
     rsx! {
@@ -84,7 +88,10 @@ pub fn ProjectionsPage() -> Element {
         Card {
             CardHeader {
                 CardTitle { "Net worth over time" }
-                CardDescription { if real() { "In today's dollars (adjusted for {num_str(data.settings.inflation_pct)}% inflation)" } else { "Nominal (future) dollars" } }
+                CardDescription {
+                    if real() { "In today's dollars (adjusted for {num_str(data.settings.inflation_pct)}% inflation{inflation_source_note})" }
+                    else { "Nominal (future) dollars" }
+                }
             }
             CardContent { class: "flex flex-col gap-4",
                 div { class: "flex flex-wrap items-end gap-6",
@@ -130,6 +137,23 @@ pub fn ProjectionsPage() -> Element {
                     Input { placeholder: "0", value: extra_invest(), oninput: move |e: FormEvent| extra_invest.set(e.value()) } }
                 Field { label: "Change all returns by %", hint: "e.g. -2 for a cautious case",
                     Input { placeholder: "0", value: return_shift(), oninput: move |e: FormEvent| return_shift.set(e.value()) } }
+            }
+        }
+
+        if !data.market.values.is_empty() {
+            Card { size: CardSize::Sm,
+                CardHeader {
+                    CardTitle { "Market context" }
+                    CardDescription { "Latest figures from FRED (synced {data.market.last_sync.clone().unwrap_or_default()}). Compare them with your return and inflation assumptions." }
+                }
+                CardContent { class: "grid grid-cols-2 gap-x-6 gap-y-3 @3xl:grid-cols-3",
+                    for v in data.market.values.iter() {
+                        div { key: "{v.indicator.key()}", class: "flex flex-col",
+                            span { class: "text-xs text-muted-foreground", "{v.indicator.label()}" }
+                            span { class: "font-semibold tabular-nums", "{v.value:.2}%" }
+                        }
+                    }
+                }
             }
         }
 

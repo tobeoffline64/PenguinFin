@@ -8,6 +8,7 @@ use crate::ui::table::*;
 use crate::views::dashboard::PageHeader;
 use crate::widgets::*;
 use dioxus::prelude::*;
+use penguinfin::fred::{Indicator, MarketData};
 use penguinfin::model::{Account, AccountGroup, AccountKind, Holding};
 
 /// Where an account's monthly contribution comes from.
@@ -131,6 +132,34 @@ fn spec(kind: AccountKind) -> KindSpec {
             funding: Funding::FromChecking,
             match_label: None,
         },
+    }
+}
+
+/// The return/APY hint, enriched with live FRED figures when they've been synced.
+fn return_hint(kind: AccountKind, default: &str, market: &MarketData) -> String {
+    let date = |d: chrono::NaiveDate| d.format("%b %-d").to_string();
+    match kind {
+        AccountKind::Savings => match market.get(Indicator::FedFunds) {
+            Some(v) => format!(
+                "The federal funds rate is {:.2}% (FRED, {}); high-yield savings usually pay a little below it.",
+                v.value,
+                date(v.as_of)
+            ),
+            None => default.to_string(),
+        },
+        AccountKind::Brokerage
+        | AccountKind::Retirement401k
+        | AccountKind::TraditionalIra
+        | AccountKind::RothIra
+        | AccountKind::Pension => match market.get(Indicator::Sp500Return10y) {
+            Some(v) => format!(
+                "The S&P 500 rose {:.1}% a year over the last 10 years (FRED; price only, dividends add ~1–2%). \
+                 Long-run assumptions of 6–8% are common.",
+                v.value
+            ),
+            None => default.to_string(),
+        },
+        _ => default.to_string(),
     }
 }
 
@@ -282,6 +311,7 @@ fn AccountFormCard(form: Signal<AccountForm>, generation: Signal<u32>, sym: Stri
     let mut form = form;
     let mut generation = generation;
     let mut error = use_signal(|| None::<String>);
+    let market = store.data.read().market.clone();
     let f = form.read().clone();
     let editing = f.id != 0;
     let sp = spec(f.kind);
@@ -340,7 +370,7 @@ fn AccountFormCard(form: Signal<AccountForm>, generation: Signal<u32>, sym: Stri
                 for k in [f.kind] {
                     div { key: "{k.key()}", class: "contents",
                         if let Some((label, hint)) = sp.return_field {
-                            Field { label, hint: hint.to_string(),
+                            Field { label, hint: return_hint(f.kind, hint, &market),
                                 Input { value: f.ret.clone(),
                                     oninput: move |e: FormEvent| form.write().ret = e.value() }
                             }

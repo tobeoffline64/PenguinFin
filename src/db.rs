@@ -1,5 +1,6 @@
 //! Local SQLite storage. Everything lives in a single file in the user's data dir.
 
+use crate::fred::{FredConfig, Indicator, InflationSource, MarketData, MarketValue};
 use crate::model::*;
 use chrono::NaiveDate;
 use rusqlite::{Connection, OptionalExtension, Row, params};
@@ -25,7 +26,7 @@ pub fn default_db_path() -> PathBuf {
     data_dir().join("penguinfin.db")
 }
 
-const SCHEMA_VERSION: i64 = 1;
+const SCHEMA_VERSION: i64 = 2;
 
 pub struct Db {
     conn: Connection,
@@ -67,7 +68,7 @@ impl Db {
 
     fn migrate(&self) -> Result<()> {
         let version: i64 = self.conn.query_row("PRAGMA user_version", [], |r| r.get(0)).map_err(e)?;
-        if version < SCHEMA_VERSION {
+        if version < 1 {
             self.conn
                 .execute_batch(
                     "BEGIN;
@@ -112,6 +113,21 @@ impl Db {
                 )
                 .map_err(e)?;
         }
+        if version < 2 {
+            self.conn
+                .execute_batch(
+                    "BEGIN;
+                CREATE TABLE IF NOT EXISTS market_data (
+                    indicator TEXT PRIMARY KEY,
+                    value REAL NOT NULL,
+                    as_of TEXT NOT NULL
+                );
+                PRAGMA user_version = 2;
+                COMMIT;",
+                )
+                .map_err(e)?;
+        }
+        const { assert!(SCHEMA_VERSION == 2, "add a migration step above") };
         Ok(())
     }
 
@@ -123,7 +139,74 @@ impl Db {
             accounts: self.accounts()?,
             holdings: self.holdings()?,
             settings: self.settings()?,
+            fred: self.fred_config()?,
+            market: self.market_data()?,
         })
+    }
+
+    pub fn fred_config(&self) -> Result<FredConfig> {
+        Ok(FredConfig {
+            api_key: self.setting("fred_api_key")?.unwrap_or_default(),
+            sync_on_launch: self.setting("fred_sync_on_launch")?.map(|v| v == "1").unwrap_or(true),
+            inflation_source: self
+                .setting("fred_inflation_source")?
+                .and_then(|v| InflationSource::from_key(&v))
+                .unwrap_or_default(),
+        })
+    }
+
+    pub fn save_fred_config(&self, c: &FredConfig) -> Result<()> {
+        self.put_setting("fred_api_key", c.api_key.trim())?;
+        self.put_setting("fred_sync_on_launch", if c.sync_on_launch { "1" } else { "0" })?;
+        self.put_setting("fred_inflation_source", c.inflation_source.key())
+    }
+
+    pub fn market_data(&self) -> Result<MarketData> {
+        let mut st = self.conn.prepare("SELECT indicator, value, as_of FROM market_data").map_err(e)?;
+        let rows = st
+            .query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, f64>(1)?, r.get::<_, String>(2)?)))
+            .map_err(e)?;
+        let mut values = Vec::new();
+        for row in rows {
+            let (k, value, as_of) = row.map_err(e)?;
+            if let Some(indicator) = Indicator::from_key(&k) {
+                values.push(MarketValue { indicator, value, as_of: date_from_sql(&as_of) });
+            }
+        }
+        // Stable display order.
+        values.sort_by_key(|v| Indicator::ALL.iter().position(|i| *i == v.indicator));
+        Ok(MarketData {
+            values,
+            last_sync: self.setting("fred_last_sync")?,
+            last_error: self.setting("fred_last_error")?.filter(|s| !s.is_empty()),
+        })
+    }
+
+    /// Store the result of a sync. Values that failed to fetch keep their previous cache.
+    pub fn save_market_data(&mut self, values: &[MarketValue], synced_at: &str, error: Option<&str>) -> Result<()> {
+        let tx = self.conn.transaction().map_err(e)?;
+        for v in values {
+            tx.execute(
+                "INSERT INTO market_data (indicator, value, as_of) VALUES (?1, ?2, ?3)
+                 ON CONFLICT(indicator) DO UPDATE SET value = excluded.value, as_of = excluded.as_of",
+                params![v.indicator.key(), v.value, date_to_sql(v.as_of)],
+            )
+            .map_err(e)?;
+        }
+        tx.commit().map_err(e)?;
+        self.put_setting("fred_last_sync", synced_at)?;
+        self.put_setting("fred_last_error", error.unwrap_or(""))
+    }
+
+    fn put_setting(&self, key: &str, value: &str) -> Result<()> {
+        self.conn
+            .execute(
+                "INSERT INTO settings (key, value) VALUES (?1, ?2)
+                 ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+                params![key, value],
+            )
+            .map_err(e)?;
+        Ok(())
     }
 
     fn flow_from_row(r: &Row) -> rusqlite::Result<CashFlow> {
@@ -440,6 +523,65 @@ mod tests {
         let acc = again.holdings[0].account_id;
         db.delete_account(acc).unwrap();
         assert!(db.holdings().unwrap().iter().all(|h| h.account_id != acc));
+    }
+
+    #[test]
+    fn fred_config_and_market_cache() {
+        let mut db = Db::open_in_memory().unwrap();
+        let c = db.fred_config().unwrap();
+        assert!(c.sync_on_launch && c.api_key.is_empty() && c.inflation_source == InflationSource::Manual);
+        let cfg = FredConfig { api_key: "k".repeat(32), sync_on_launch: false, inflation_source: InflationSource::CpiInflation };
+        db.save_fred_config(&cfg).unwrap();
+        assert_eq!(db.fred_config().unwrap(), cfg);
+
+        let d = NaiveDate::from_ymd_opt(2026, 11, 1).unwrap();
+        let v = |i, x| MarketValue { indicator: i, value: x, as_of: d };
+        db.save_market_data(&[v(Indicator::FedFunds, 4.1), v(Indicator::CpiInflation, 2.9)], "2026-11-15 09:00", None).unwrap();
+        // A later partial sync updates one value and keeps the other cached.
+        db.save_market_data(&[v(Indicator::FedFunds, 3.9)], "2026-11-16 09:00", Some("timeout")).unwrap();
+        let m = db.market_data().unwrap();
+        assert_eq!(m.get(Indicator::FedFunds).unwrap().value, 3.9);
+        assert_eq!(m.get(Indicator::CpiInflation).unwrap().value, 2.9);
+        assert_eq!(m.last_sync.as_deref(), Some("2026-11-16 09:00"));
+        assert_eq!(m.last_error.as_deref(), Some("timeout"));
+        // CPI comes before fed funds in display order.
+        assert_eq!(m.values[0].indicator, Indicator::CpiInflation);
+
+        // Replacing all data (backup restore) keeps the FRED key.
+        db.replace_all(&AppData::default()).unwrap();
+        assert_eq!(db.fred_config().unwrap().api_key, "k".repeat(32));
+    }
+
+    #[test]
+    fn backups_never_contain_the_api_key() {
+        let mut data = AppData::default();
+        data.fred.api_key = "secretsecretsecretsecretsecret12".into();
+        let json = serde_json::to_string(&data).unwrap();
+        assert!(!json.contains("secretsecret"));
+    }
+
+    #[test]
+    fn migrates_v1_database() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("old.db");
+        {
+            let c = Connection::open(&path).unwrap();
+            c.execute_batch("CREATE TABLE settings (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+                CREATE TABLE cash_flows (id INTEGER PRIMARY KEY AUTOINCREMENT, kind TEXT NOT NULL, name TEXT NOT NULL,
+                  category TEXT NOT NULL DEFAULT '', amount REAL NOT NULL, frequency TEXT NOT NULL, start_date TEXT NOT NULL,
+                  end_date TEXT, annual_change_pct REAL NOT NULL DEFAULT 0, autopay INTEGER NOT NULL DEFAULT 0, notes TEXT NOT NULL DEFAULT '');
+                CREATE TABLE accounts (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, kind TEXT NOT NULL,
+                  balance REAL NOT NULL DEFAULT 0, annual_return_pct REAL NOT NULL DEFAULT 0, monthly_contribution REAL NOT NULL DEFAULT 0,
+                  contribution_from_cash INTEGER NOT NULL DEFAULT 0, employer_match_monthly REAL NOT NULL DEFAULT 0, notes TEXT NOT NULL DEFAULT '');
+                CREATE TABLE holdings (id INTEGER PRIMARY KEY AUTOINCREMENT, account_id INTEGER NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+                  symbol TEXT NOT NULL, shares REAL NOT NULL, price REAL NOT NULL, price_updated TEXT);
+                INSERT INTO accounts (name, kind, balance) VALUES ('Checking', 'checking', 100);
+                PRAGMA user_version = 1;").unwrap();
+        }
+        let db = Db::open(&path).unwrap();
+        let data = db.load().unwrap();
+        assert_eq!(data.accounts.len(), 1);
+        assert!(data.market.values.is_empty());
     }
 
     #[test]

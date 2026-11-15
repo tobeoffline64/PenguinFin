@@ -26,6 +26,10 @@ Built in **Rust** with **[Dioxus](https://dioxuslabs.com) desktop** and componen
 - **Interface**: UI size *Auto* (scales with the window) or S / M / L / XL, from the sidebar, Settings,
   or Ctrl + / Ctrl − / Ctrl 0. The layout reflows to the space it has, and the sidebar collapses to icons
   when it's tight. Optional **natural scrolling** (reversed wheel/touchpad direction).
+- **Economic data (FRED, optional)**: with a free API key, pulls expected and current inflation, the fed
+  funds rate, 10-year Treasury, 30-year mortgage rate and the S&P 500's 10-year return. Syncs in the background
+  on launch and on demand (Settings → Economic data); inflation can follow FRED automatically; account forms and
+  Projections show the figures as guidance. Without a key the app makes no network requests.
 - **Loading skeletons** while the window starts up and while projections are calculated (shown only if a
   calculation takes more than ~150 ms, so quick updates don't flicker).
 
@@ -103,7 +107,9 @@ cargo test
 `PENGUINFIN_DB=/path/to/file.db cargo run` uses a different database.
 `PENGUINFIN_WINDOW_SIZE=900x700` sets the initial window size (handy for checking layouts), and in debug
 builds `PENGUINFIN_SLOW=1` delays background work so loading states can be inspected.
-`PENGUINFIN_PERF=1` prints input-to-frame latency for each click/keystroke to stderr.
+`PENGUINFIN_PERF=1` prints input-to-frame latency for each click/keystroke to stderr. It also reports when the first frame was committed.
+`PENGUINFIN_FRED_URL` points the FRED client at another server (e.g. a local mock); `cargo run --example fred_check -- <key>`
+fetches every indicator from the command line.
 `cargo run --example seed -- /path/to/file.db` fills one with sample data.
 
 Build the flatpak bundle yourself (needs `sudo apt install flatpak flatpak-builder` and Rust from rustup.rs):
@@ -119,6 +125,7 @@ Build the flatpak bundle yourself (needs `sudo apt install flatpak flatpak-build
 | `src/model.rs` | Domain types, schedule math (occurrence dates) |
 | `src/projection.rs` | Monthly projection engine, upcoming payments, category totals |
 | `src/db.rs` | SQLite schema, migrations, CRUD, JSON backup |
+| `src/fred.rs` | FRED API client: indicators, parallel fetch, parsing |
 | `src/prices.rs` | Price provider trait (manual in v1) |
 | `src/ui/` | Rust/UI components (copied from the registry, MIT; see `LICENSE-rust-ui`) |
 | `src/views/` | Dashboard, cash flows, accounts, projections, settings |
