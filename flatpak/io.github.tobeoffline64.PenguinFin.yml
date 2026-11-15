@@ -1,0 +1,60 @@
+# Build:  ./build-flatpak.sh   (vendors crates, then runs flatpak-builder offline)
+app-id: io.github.tobeoffline64.PenguinFin
+runtime: org.gnome.Platform
+runtime-version: '49'
+sdk: org.gnome.Sdk
+sdk-extensions:
+  - org.freedesktop.Sdk.Extension.rust-stable
+command: penguinfin
+finish-args:
+  - --share=ipc
+  - --socket=wayland
+  - --socket=fallback-x11
+  - --device=dri
+  # Backups are exported to / restored from ~/Downloads.
+  - --filesystem=xdg-download
+  # Required by the webview, not for internet access: Dioxus drives the UI over a
+  # local 127.0.0.1 websocket, and inside a flatpak WebKit runs its network process
+  # in its own sub-sandbox that cannot reach the app's loopback without this.
+  # PenguinFin itself makes no outbound requests (a future stock-quote API will use it).
+  - --share=network
+build-options:
+  append-path: /usr/lib/sdk/rust-stable/bin
+modules:
+  # dioxus-desktop (via muda) links libxdo, which the GNOME runtime does not ship.
+  - name: libxdo
+    buildsystem: simple
+    build-commands:
+      - make PREFIX=/app libxdo.so
+      - make PREFIX=/app INSTALLLIB=/app/lib INSTALLINCLUDE=/app/include installlib installheader
+    sources:
+      - type: archive
+        url: https://github.com/jordansissel/xdotool/releases/download/v3.20211022.1/xdotool-3.20211022.1.tar.gz
+        sha256: 96f0facfde6d78eacad35b91b0f46fecd0b35e474c03e00e30da3fdd345f9ada
+    cleanup:
+      - /include
+
+  - name: penguinfin
+    buildsystem: simple
+    build-options:
+      env:
+        CARGO_HOME: /run/build/penguinfin/cargo-home
+        CARGO_NET_OFFLINE: 'true'
+        LIBRARY_PATH: /app/lib
+    build-commands:
+      - mkdir -p cargo-home && cp flatpak/cargo-vendor-config.toml cargo-home/config.toml
+      - cargo --offline build --release --locked
+      - install -Dm755 target/release/penguinfin /app/bin/penguinfin
+      - install -Dm644 flatpak/io.github.tobeoffline64.PenguinFin.desktop /app/share/applications/io.github.tobeoffline64.PenguinFin.desktop
+      - install -Dm644 flatpak/io.github.tobeoffline64.PenguinFin.metainfo.xml /app/share/metainfo/io.github.tobeoffline64.PenguinFin.metainfo.xml
+      - install -Dm644 flatpak/io.github.tobeoffline64.PenguinFin.svg /app/share/icons/hicolor/scalable/apps/io.github.tobeoffline64.PenguinFin.svg
+    sources:
+      - type: dir
+        path: ..
+        skip:
+          - target
+          - node_modules
+          - .flatpak-builder
+          - build-dir
+          - repo
+          - dist

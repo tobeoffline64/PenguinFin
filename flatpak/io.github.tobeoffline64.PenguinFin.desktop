@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=PenguinFin
+GenericName=Personal Finance Planner
+Comment=Plan bills, recurring expenses, income and investment growth offline
+Exec=penguinfin
+Icon=io.github.tobeoffline64.PenguinFin
+Terminal=false
+Categories=Office;Finance;
+Keywords=budget;bills;money;retirement;investments;projection;
+StartupWMClass=penguinfin

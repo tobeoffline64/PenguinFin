@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>io.github.tobeoffline64.PenguinFin</id>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>MIT</project_license>
+  <name>PenguinFin</name>
+  <summary>Offline planner for bills, expenses, income and investments</summary>
+  <description>
+    <p>PenguinFin keeps track of your income, bills and recurring expenses, and projects how your
+    cash, investment and retirement balances grow over the years. All data is stored in a local
+    SQLite file and never leaves your computer.</p>
+    <ul>
+      <li>Income, bills and recurring expenses with weekly to yearly schedules</li>
+      <li>Upcoming payments for the next 30 days</li>
+      <li>Checking, savings, brokerage, 401(k), IRA and HSA accounts with holdings</li>
+      <li>Multi-decade projections with raises, inflation and expected returns</li>
+      <li>What-if scenarios and JSON backups</li>
+    </ul>
+  </description>
+  <launchable type="desktop-id">io.github.tobeoffline64.PenguinFin.desktop</launchable>
+  <developer id="io.github.tobeoffline64"><name>tobeoffline64</name></developer>
+  <content_rating type="oars-1.1"/>
+  <releases>
+    <release version="1.0.0" date="2026-11-15"/>
+  </releases>
+</component>
