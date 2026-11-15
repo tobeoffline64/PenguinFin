@@ -29,7 +29,10 @@ case "${1:-}" in
 esac
 
 mkdir -p "$DEV"
-step() { printf '\n\033[1m==> %s\033[0m\n' "$*"; }
+CURRENT_STEP="checking requirements"
+step() { CURRENT_STEP="$*"; printf '\n\033[1m==> %s\033[0m\n' "$*"; }
+# Any failing command stops the script; say where, instead of exiting silently.
+trap 'echo >&2; echo "Build failed during: $CURRENT_STEP" >&2' ERR
 SECONDS=0
 
 missing=()
@@ -82,8 +85,15 @@ else
     echo "$XDO_SHA  $DEV/xdotool.tar.gz" | sha256sum -c --quiet -
     mkdir -p "$DEV/xdotool"
     tar xzf "$DEV/xdotool.tar.gz" -C "$DEV/xdotool" --strip-components=1
-    flatpak build --filesystem="$DEV" "$SDK_DIR" sh -c "cd '$DEV/xdotool' && make -s PREFIX=/app libxdo.so \
-      && make -s PREFIX=/app INSTALLLIB=/app/lib INSTALLINCLUDE=/app/include installlib installheader" > /dev/null
+    # xdotool's C code prints harmless compiler warnings; keep them in a log and only
+    # show it if the build actually fails.
+    if ! flatpak build --filesystem="$DEV" "$SDK_DIR" sh -c "cd '$DEV/xdotool' && make -s PREFIX=/app libxdo.so \
+      && make -s PREFIX=/app INSTALLLIB=/app/lib INSTALLINCLUDE=/app/include installlib installheader" \
+      > "$DEV/libxdo.log" 2>&1; then
+      tail -30 "$DEV/libxdo.log" >&2
+      echo "libxdo failed to build; full log: $DEV/libxdo.log" >&2
+      exit 1
+    fi
   fi
   mkdir -p "$DEV/cargo-home"
   cat > "$DEV/cargo-home/config.toml" <<EOF
