@@ -30,6 +30,12 @@ curl -fL -o /tmp/penguinfin.flatpak https://github.com/tobeoffline64/penguinfin/
 flatpak install --user -y --reinstall /tmp/penguinfin.flatpak
 ```
 
+## New in 1.2.0
+- **Faster, more responsive UI.** Runs natively on Wayland with WebKit's GPU buffer path (previously forced through XWayland with it turned off), cheaper shadows that are much faster to paint, and forms that no longer re-render the whole page as you edit them.
+- **Account form adapts to the account type**: e.g. savings asks for APY and monthly transfers, a 401(k) for paycheck contributions and employer match, other assets for value and yearly change.
+- **Pages open at the top** instead of where you last scrolled.
+- If the window is ever blank or flickers on your graphics driver, start it with `flatpak run --env=PENGUINFIN_COMPAT_RENDERING=1 io.github.tobeoffline64.PenguinFin`.
+
 ## New in 1.1.1
 - Dropdown menus now match the app's light/dark theme. On a dark desktop they were drawn dark even in light mode.
 

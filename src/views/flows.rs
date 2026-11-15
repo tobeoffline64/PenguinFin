@@ -150,6 +150,9 @@ pub fn FlowsPage(kind: FlowKind) -> Element {
     let mut form = use_signal(|| FlowForm::new(kind, inflation));
     let mut error = use_signal(|| None::<String>);
     let mut generation = use_signal(|| 0u32);
+    // Re-render the list only when *which* item is being edited changes, not on every
+    // form edit (those re-render just the form).
+    let editing_id = use_memo(move || form.read().id);
     let today = today();
 
     let flows: Vec<CashFlow> = data.flows.iter().filter(|f| f.kind == kind).cloned().collect();
@@ -158,24 +161,6 @@ pub fn FlowsPage(kind: FlowKind) -> Element {
         .filter(|f| f.end_date.is_none_or(|e| e >= today))
         .map(CashFlow::monthly_equivalent)
         .sum();
-
-    let editing = form.read().id != 0;
-    let freq_options: Vec<(String, String)> =
-        Frequency::ALL.iter().map(|f| (f.key().to_string(), f.label().to_string())).collect();
-
-    let save = move |_| {
-        let res = form.read().to_flow(kind);
-        match res {
-            Ok(f) => {
-                error.set(None);
-                let msg = if f.id == 0 { "Added" } else { "Saved" };
-                store.mutate(msg, |db| db.save_flow(&f).map(|_| ()));
-                form.set(FlowForm::new(kind, inflation));
-                generation += 1;
-            }
-            Err(e) => error.set(Some(e)),
-        }
-    };
 
     rsx! {
         PageHeader { title: t.title, subtitle: t.subtitle }
@@ -207,11 +192,11 @@ pub fn FlowsPage(kind: FlowKind) -> Element {
                                             key: "{f.id}",
                                             flow: f.clone(),
                                             sym: sym.clone(),
-                                            selected: form.read().id == f.id,
+                                            selected: editing_id() == f.id,
                                             on_edit: move |f: CashFlow| { error.set(None); form.set(FlowForm::from_flow(&f)); generation += 1; },
                                             on_delete: move |id: i64| {
                                                 store.mutate("Deleted", |db| db.delete_flow(id));
-                                                if form.read().id == id { form.set(FlowForm::new(kind, inflation)); generation += 1; }
+                                                if form.peek().id == id { form.set(FlowForm::new(kind, inflation)); generation += 1; }
                                             },
                                         }
                                     }
@@ -222,95 +207,136 @@ pub fn FlowsPage(kind: FlowKind) -> Element {
                 }
             }
 
-            Card {
-                CardHeader {
-                    CardTitle { if editing { "Edit {t.singular}" } else { "Add {t.singular}" } }
+            FlowFormCard { kind, form, error, generation, sym: sym.clone(), inflation }
+        }
+    }
+}
+
+/// The add/edit form, as its own component so editing it doesn't re-render the list.
+#[component]
+fn FlowFormCard(
+    kind: FlowKind,
+    form: Signal<FlowForm>,
+    error: Signal<Option<String>>,
+    generation: Signal<u32>,
+    sym: String,
+    inflation: f64,
+) -> Element {
+    let mut store = use_store();
+    let (mut form, mut error, mut generation) = (form, error, generation);
+    // Bumped when a category chip is clicked, to remount just the category input.
+    let mut category_gen = use_signal(|| 0u32);
+    let t = text_for(kind);
+    let editing = form.read().id != 0;
+    let freq_options: Vec<(String, String)> =
+        Frequency::ALL.iter().map(|f| (f.key().to_string(), f.label().to_string())).collect();
+
+    let save = move |_| {
+        let res = form.read().to_flow(kind);
+        match res {
+            Ok(f) => {
+                error.set(None);
+                let msg = if f.id == 0 { "Added" } else { "Saved" };
+                store.mutate(msg, |db| db.save_flow(&f).map(|_| ()));
+                form.set(FlowForm::new(kind, inflation));
+                generation += 1;
+            }
+            Err(e) => error.set(Some(e)),
+        }
+    };
+
+    rsx! {
+        Card {
+            CardHeader {
+                CardTitle { if editing { "Edit {t.singular}" } else { "Add {t.singular}" } }
+            }
+            for g in [generation()] {
+            CardContent { key: "{g}", class: "flex flex-col gap-4",
+                Field { label: "Name",
+                    Input { value: form.read().name.clone(), placeholder: "e.g. {t.categories[0]}",
+                        oninput: move |e: FormEvent| form.write().name = e.value() }
                 }
-                for g in [generation()] {
-                CardContent { key: "{g}", class: "flex flex-col gap-4",
-                    Field { label: "Name",
-                        Input { value: form.read().name.clone(), placeholder: "e.g. {t.categories[0]}",
-                            oninput: move |e: FormEvent| form.write().name = e.value() }
+                div { class: "grid grid-cols-2 gap-3",
+                    Field { label: "Amount ({sym})",
+                        Input { value: form.read().amount.clone(), placeholder: "0.00",
+                            oninput: move |e: FormEvent| form.write().amount = e.value() }
                     }
-                    div { class: "grid grid-cols-2 gap-3",
-                        Field { label: "Amount ({sym})",
-                            Input { value: form.read().amount.clone(), placeholder: "0.00",
-                                oninput: move |e: FormEvent| form.write().amount = e.value() }
-                        }
-                        Field { label: "How often",
-                            NativeSelect {
-                                value: form.read().frequency.key().to_string(),
-                                options: freq_options.clone(),
-                                onchange: move |v: String| if let Some(f) = Frequency::from_key(&v) { form.write().frequency = f },
-                            }
+                    Field { label: "How often",
+                        NativeSelect {
+                            value: form.read().frequency.key().to_string(),
+                            options: freq_options.clone(),
+                            onchange: move |v: String| if let Some(f) = Frequency::from_key(&v) { form.write().frequency = f },
                         }
                     }
-                    Field { label: "Category",
-                        Input { value: form.read().category.clone(), placeholder: "Pick or type",
+                }
+                Field { label: "Category",
+                    for cg in [category_gen()] {
+                        Input { key: "{cg}", value: form.read().category.clone(), placeholder: "Pick or type",
                             oninput: move |e: FormEvent| form.write().category = e.value() }
-                        div { class: "flex flex-wrap gap-1",
-                            for c in t.categories.iter() {
-                                button {
-                                    class: "cursor-pointer rounded-full border px-2 py-0.5 text-[0.6875rem] text-muted-foreground hover:bg-accent",
-                                    onclick: move |_| { form.write().category = c.to_string(); generation += 1; },
-                                    "{c}"
-                                }
+                    }
+                    div { class: "flex flex-wrap gap-1",
+                        for c in t.categories.iter() {
+                            button {
+                                class: "cursor-pointer rounded-full border px-2 py-0.5 text-[0.6875rem] text-muted-foreground hover:bg-accent",
+                                onclick: move |_| { form.write().category = c.to_string(); category_gen += 1; },
+                                "{c}"
                             }
                         }
                     }
-                    Field { label: t.date_label,
-                        Input { r#type: InputType::Date, value: form.read().start_date.clone(),
-                            oninput: move |e: FormEvent| form.write().start_date = e.value() }
-                    }
-                    div { class: "flex items-center justify-between",
-                        span { class: "text-sm", "Has an end date" }
-                        Switch { checked: form.read().has_end, aria_label: "Has an end date",
-                            onchange: move |v| {
-                                let mut f = form.write();
-                                f.has_end = v;
-                                if v && f.end_date.is_empty() { f.end_date = f.start_date.clone(); }
-                            } }
-                    }
-                    if form.read().has_end {
-                        Field { label: "Last payment on or before",
-                            Input { r#type: InputType::Date, value: form.read().end_date.clone(),
-                                oninput: move |e: FormEvent| form.write().end_date = e.value() }
-                        }
-                    }
-                    Field { label: t.change_label, hint: t.change_hint,
-                        Input { value: form.read().change.clone(),
-                            oninput: move |e: FormEvent| form.write().change = e.value() }
-                    }
-                    if kind != FlowKind::Income {
-                        div { class: "flex items-center justify-between",
-                            span { class: "text-sm", "Paid automatically (autopay)" }
-                            Switch { checked: form.read().autopay, aria_label: "Autopay",
-                                onchange: move |v| form.write().autopay = v }
-                        }
-                    } else {
-                        div { class: "flex items-center justify-between",
-                            span { class: "text-sm", "Direct deposit" }
-                            Switch { checked: form.read().autopay, aria_label: "Direct deposit",
-                                onchange: move |v| form.write().autopay = v }
-                        }
-                    }
-                    Field { label: "Notes",
-                        Input { value: form.read().notes.clone(), oninput: move |e: FormEvent| form.write().notes = e.value() }
-                    }
-                    if let Some(e) = error() {
-                        p { class: "text-sm text-destructive", "{e}" }
-                    }
-                    div { class: "flex gap-2",
-                        Button { onclick: save, Icon { name: IconName::Plus } if editing { "Save changes" } else { "Add" } }
-                        if editing {
-                            Button { variant: ButtonVariant::Outline,
-                                onclick: move |_| { error.set(None); form.set(FlowForm::new(kind, inflation)); generation += 1; }, "Cancel" }
-                        }
+                }
+                Field { label: t.date_label,
+                    Input { r#type: InputType::Date, value: form.read().start_date.clone(),
+                        oninput: move |e: FormEvent| form.write().start_date = e.value() }
+                }
+                div { class: "flex items-center justify-between",
+                    span { class: "text-sm", "Has an end date" }
+                    Switch { checked: form.read().has_end, aria_label: "Has an end date",
+                        onchange: move |v| {
+                            let mut f = form.write();
+                            f.has_end = v;
+                            if v && f.end_date.is_empty() { f.end_date = f.start_date.clone(); }
+                        } }
+                }
+                if form.read().has_end {
+                    Field { label: "Last payment on or before",
+                        Input { r#type: InputType::Date, value: form.read().end_date.clone(),
+                            oninput: move |e: FormEvent| form.write().end_date = e.value() }
                     }
                 }
+                Field { label: t.change_label, hint: t.change_hint,
+                    Input { value: form.read().change.clone(),
+                        oninput: move |e: FormEvent| form.write().change = e.value() }
+                }
+                if kind != FlowKind::Income {
+                    div { class: "flex items-center justify-between",
+                        span { class: "text-sm", "Paid automatically (autopay)" }
+                        Switch { checked: form.read().autopay, aria_label: "Autopay",
+                            onchange: move |v| form.write().autopay = v }
+                    }
+                } else {
+                    div { class: "flex items-center justify-between",
+                        span { class: "text-sm", "Direct deposit" }
+                        Switch { checked: form.read().autopay, aria_label: "Direct deposit",
+                            onchange: move |v| form.write().autopay = v }
+                    }
+                }
+                Field { label: "Notes",
+                    Input { value: form.read().notes.clone(), oninput: move |e: FormEvent| form.write().notes = e.value() }
+                }
+                if let Some(e) = error() {
+                    p { class: "text-sm text-destructive", "{e}" }
+                }
+                div { class: "flex gap-2",
+                    Button { onclick: save, Icon { name: IconName::Plus } if editing { "Save changes" } else { "Add" } }
+                    if editing {
+                        Button { variant: ButtonVariant::Outline,
+                            onclick: move |_| { error.set(None); form.set(FlowForm::new(kind, inflation)); generation += 1; }, "Cancel" }
+                    }
                 }
             }
+            }
         }
+
     }
 }
 

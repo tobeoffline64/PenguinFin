@@ -14,7 +14,7 @@ use penguinfin::model::Settings;
 const APP_CSS: &str = include_str!("../assets/app.css");
 
 /// Shown while the webview starts and connects to the app (the window would otherwise
-/// be blank for a moment). Hidden by CSS as soon as the app renders into `#main`.
+/// be blank for a moment). Removed by the app once it has rendered.
 const BOOT_SKELETON: &str = r#"<div id="boot" aria-hidden="true" class="@container/app fixed inset-0 flex bg-background">
   <div class="flex w-14 @5xl/app:w-60 shrink-0 flex-col gap-3 border-r bg-sidenav p-3">
     <div class="pf-sk h-10 rounded-md"></div>
@@ -65,6 +65,12 @@ fn initial_size() -> LogicalSize<f64> {
         .unwrap_or(LogicalSize::new(1280.0, 860.0))
 }
 
+/// `PENGUINFIN_COMPAT_RENDERING=1` restores the slower but most compatible rendering path
+/// (XWayland, no DMA-BUF) in case a graphics driver shows a blank or flickering window.
+fn compat_rendering() -> bool {
+    std::env::var("PENGUINFIN_COMPAT_RENDERING").is_ok_and(|v| !v.is_empty() && v != "0")
+}
+
 fn main() {
     // Open the database before the window appears, so the first frame already uses the
     // saved theme and UI size. The App takes ownership of it in `app::App`.
@@ -92,6 +98,10 @@ fn main() {
         .with_custom_index(index_html(&settings))
         .with_background_color((bg_r, bg_g, bg_b, 255))
         .with_data_directory(penguinfin::db::data_dir().join("webview"))
-        .with_disable_context_menu(!cfg!(debug_assertions));
+        .with_disable_context_menu(!cfg!(debug_assertions))
+        // Dioxus defaults to forcing XWayland and turning off WebKit's DMA-BUF renderer on
+        // Wayland (a workaround for some NVIDIA drivers). That makes every frame slower and
+        // adds input latency for everyone else, so run natively unless asked not to.
+        .with_disable_dma_buf_on_wayland(compat_rendering());
     dioxus::LaunchBuilder::desktop().with_cfg(cfg).launch(app::App);
 }

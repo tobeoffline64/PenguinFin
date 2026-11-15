@@ -78,6 +78,9 @@ curl -fL -o /tmp/penguinfin.flatpak https://github.com/tobeoffline64/penguinfin/
 flatpak install --user -y --reinstall /tmp/penguinfin.flatpak
 ```
 
+If the window is blank or flickers (some graphics drivers, especially NVIDIA on Wayland), start it in
+compatibility mode: `flatpak run --env=PENGUINFIN_COMPAT_RENDERING=1 io.github.tobeoffline64.PenguinFin`.
+
 Your database is at `~/.var/app/io.github.tobeoffline64.PenguinFin/data/penguinfin/penguinfin.db`.
 
 ## Releasing
@@ -100,6 +103,7 @@ cargo test
 `PENGUINFIN_DB=/path/to/file.db cargo run` uses a different database.
 `PENGUINFIN_WINDOW_SIZE=900x700` sets the initial window size (handy for checking layouts), and in debug
 builds `PENGUINFIN_SLOW=1` delays background work so loading states can be inspected.
+`PENGUINFIN_PERF=1` prints input-to-frame latency for each click/keystroke to stderr.
 `cargo run --example seed -- /path/to/file.db` fills one with sample data.
 
 Build the flatpak bundle yourself (needs `sudo apt install flatpak flatpak-builder` and Rust from rustup.rs):

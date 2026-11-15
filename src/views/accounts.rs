@@ -10,6 +10,130 @@ use crate::widgets::*;
 use dioxus::prelude::*;
 use penguinfin::model::{Account, AccountGroup, AccountKind, Holding};
 
+/// Where an account's monthly contribution comes from.
+#[derive(Clone, Copy, PartialEq)]
+enum Funding {
+    /// Moved out of checking each month.
+    FromChecking,
+    /// Withheld from the paycheck (take-home pay already excludes it).
+    Payroll,
+    /// Either; the user picks, with this default (true = from checking).
+    Choice(bool),
+}
+
+/// Which fields the form shows for an account type, and how they're labelled.
+struct KindSpec {
+    noun: &'static str,
+    intro: &'static str,
+    name_placeholder: &'static str,
+    balance_label: &'static str,
+    balance_hint: Option<&'static str>,
+    /// `None` hides the field (return is 0).
+    return_field: Option<(&'static str, &'static str)>,
+    /// `None` hides contributions entirely.
+    contrib_field: Option<(&'static str, &'static str)>,
+    funding: Funding,
+    match_label: Option<&'static str>,
+}
+
+const MARKET_HINT: &str = "Long-run stock market averages are often assumed at 6–8% a year.";
+
+fn spec(kind: AccountKind) -> KindSpec {
+    match kind {
+        AccountKind::Checking => KindSpec {
+            noun: "checking account",
+            intro: "Your everyday account. In projections, money left over each month collects in your first checking account.",
+            name_placeholder: "e.g. Chase checking",
+            balance_label: "Current balance",
+            balance_hint: None,
+            return_field: None,
+            contrib_field: None,
+            funding: Funding::FromChecking,
+            match_label: None,
+        },
+        AccountKind::Savings => KindSpec {
+            noun: "savings account",
+            intro: "Emergency fund or high-yield savings, earning interest.",
+            name_placeholder: "e.g. Ally high-yield savings",
+            balance_label: "Current balance",
+            balance_hint: None,
+            return_field: Some(("Interest rate (APY) %", "Shown on your bank's website, e.g. 4.0")),
+            contrib_field: Some(("Monthly transfer from checking", "Moved from checking into this account each month.")),
+            funding: Funding::FromChecking,
+            match_label: None,
+        },
+        AccountKind::Brokerage => KindSpec {
+            noun: "brokerage account",
+            intro: "A regular (taxable) investment account.",
+            name_placeholder: "e.g. Fidelity brokerage",
+            balance_label: "Cash / uninvested balance",
+            balance_hint: Some("After saving, add stocks and funds as holdings, or enter the account's total value here instead."),
+            return_field: Some(("Expected yearly return %", MARKET_HINT)),
+            contrib_field: Some(("Monthly investment from checking", "Moved from checking and invested each month.")),
+            funding: Funding::FromChecking,
+            match_label: None,
+        },
+        AccountKind::Retirement401k => KindSpec {
+            noun: "401(k) / 403(b)",
+            intro: "Workplace retirement plan funded from your paycheck.",
+            name_placeholder: "e.g. Work 401(k)",
+            balance_label: "Current balance",
+            balance_hint: None,
+            return_field: Some(("Expected yearly return %", MARKET_HINT)),
+            contrib_field: Some((
+                "Your contribution / month",
+                "Taken from your paycheck before take-home pay, so it doesn't come out of checking.",
+            )),
+            funding: Funding::Payroll,
+            match_label: Some("Employer match / month"),
+        },
+        AccountKind::TraditionalIra | AccountKind::RothIra => KindSpec {
+            noun: if kind == AccountKind::RothIra { "Roth IRA" } else { "traditional IRA" },
+            intro: "Individual retirement account you fund yourself.",
+            name_placeholder: if kind == AccountKind::RothIra { "e.g. Vanguard Roth IRA" } else { "e.g. Schwab traditional IRA" },
+            balance_label: "Current balance",
+            balance_hint: None,
+            return_field: Some(("Expected yearly return %", MARKET_HINT)),
+            contrib_field: Some(("Monthly contribution", "How much you put in each month.")),
+            funding: Funding::Choice(true),
+            match_label: None,
+        },
+        AccountKind::Hsa => KindSpec {
+            noun: "HSA",
+            intro: "Health savings account; can be invested for the long term.",
+            name_placeholder: "e.g. HealthEquity HSA",
+            balance_label: "Current balance",
+            balance_hint: None,
+            return_field: Some(("Expected yearly return %", "Use 0–1% if it stays in cash, or a market return if invested.")),
+            contrib_field: Some(("Your contribution / month", "Usually through payroll; turn on the switch if you pay it from checking.")),
+            funding: Funding::Choice(false),
+            match_label: Some("Employer contribution / month"),
+        },
+        AccountKind::Pension => KindSpec {
+            noun: "pension / TSP",
+            intro: "Pension, Thrift Savings Plan, or similar employer plan.",
+            name_placeholder: "e.g. TSP",
+            balance_label: "Current balance",
+            balance_hint: None,
+            return_field: Some(("Expected yearly return %", MARKET_HINT)),
+            contrib_field: Some(("Your contribution / month", "Taken from your paycheck before take-home pay.")),
+            funding: Funding::Payroll,
+            match_label: Some("Employer / agency contribution / month"),
+        },
+        AccountKind::Other => KindSpec {
+            noun: "asset",
+            intro: "Anything else you own that counts toward net worth: home equity, a car, crypto, collectibles.",
+            name_placeholder: "e.g. Home equity",
+            balance_label: "Current value",
+            balance_hint: None,
+            return_field: Some(("Expected yearly change %", "Use a negative number for things that lose value, like a car (e.g. -15).")),
+            contrib_field: None,
+            funding: Funding::FromChecking,
+            match_label: None,
+        },
+    }
+}
+
 #[derive(Clone, PartialEq)]
 struct AccountForm {
     id: i64,
@@ -35,7 +159,11 @@ impl AccountForm {
             balance: String::new(),
             ret: num_str(kind.default_return_pct()),
             contrib: "0".into(),
-            from_cash: !matches!(kind, AccountKind::Retirement401k | AccountKind::Pension),
+            from_cash: match spec(kind).funding {
+                Funding::FromChecking => true,
+                Funding::Payroll => false,
+                Funding::Choice(d) => d,
+            },
             matched: "0".into(),
             notes: String::new(),
         }
@@ -53,21 +181,29 @@ impl AccountForm {
             notes: a.notes.clone(),
         }
     }
+    /// Build the account, ignoring fields the selected type doesn't use.
     fn to_account(&self) -> Result<Account, String> {
         let name = self.name.trim();
         if name.is_empty() {
             return Err("Please enter an account name.".into());
         }
         let balance = if self.balance.trim().is_empty() { 0.0 } else { parse_num(&self.balance).ok_or("Balance must be a number.")? };
+        let sp = spec(self.kind);
+        let num = |s: &str| parse_num(s).unwrap_or(0.0);
+        let has_contrib = sp.contrib_field.is_some();
         Ok(Account {
             id: self.id,
             name: name.into(),
             kind: self.kind,
             balance,
-            annual_return_pct: parse_num(&self.ret).unwrap_or(0.0),
-            monthly_contribution: parse_num(&self.contrib).unwrap_or(0.0).max(0.0),
-            contribution_from_cash: self.from_cash,
-            employer_match_monthly: parse_num(&self.matched).unwrap_or(0.0).max(0.0),
+            annual_return_pct: if sp.return_field.is_some() { num(&self.ret) } else { 0.0 },
+            monthly_contribution: if has_contrib { num(&self.contrib).max(0.0) } else { 0.0 },
+            contribution_from_cash: match sp.funding {
+                Funding::FromChecking => true,
+                Funding::Payroll => false,
+                Funding::Choice(_) => self.from_cash,
+            } && has_contrib,
+            employer_match_monthly: if sp.match_label.is_some() { num(&self.matched).max(0.0) } else { 0.0 },
             notes: self.notes.trim().into(),
         })
     }
@@ -79,23 +215,10 @@ pub fn AccountsPage() -> Element {
     let data = store.data.read().clone();
     let sym = data.settings.currency_symbol.clone();
     let mut form = use_signal(AccountForm::new);
-    let mut error = use_signal(|| None::<String>);
     let mut generation = use_signal(|| 0u32);
-    let editing = form.read().id != 0;
-    let kind_options: Vec<(String, String)> =
-        AccountKind::ALL.iter().map(|k| (k.key().to_string(), k.label().to_string())).collect();
-
-    let save = move |_| {
-        let res = form.read().to_account();
-        match res {
-        Ok(a) => {
-            error.set(None);
-            store.mutate(if a.id == 0 { "Account added" } else { "Account saved" }, |db| db.save_account(&a).map(|_| ()));
-            form.set(AccountForm::new());
-            generation += 1;
-        }
-        Err(e) => error.set(Some(e)),
-    }};
+    // The page only re-renders when *which* account is being edited changes, not on
+    // every form edit (those re-render just the form).
+    let editing_id = use_memo(move || form.read().id);
 
     let groups = [
         (AccountGroup::Cash, "Cash"),
@@ -134,11 +257,11 @@ pub fn AccountsPage() -> Element {
                                         value: data.account_value(&a),
                                         holdings: data.holdings_for(a.id).cloned().collect::<Vec<_>>(),
                                         sym: sym.clone(),
-                                        selected: form.read().id == a.id,
-                                        on_edit: move |a: Account| { error.set(None); form.set(AccountForm::from_account(&a)); generation += 1; },
+                                        selected: editing_id() == a.id,
+                                        on_edit: move |a: Account| { form.set(AccountForm::from_account(&a)); generation += 1; },
                                         on_delete: move |id: i64| {
                                             store.mutate("Account deleted", |db| db.delete_account(id));
-                                            if form.read().id == id { form.set(AccountForm::new()); generation += 1; }
+                                            if form.peek().id == id { form.set(AccountForm::new()); generation += 1; }
                                         },
                                     }
                                 }
@@ -147,78 +270,123 @@ pub fn AccountsPage() -> Element {
                     }
                 }
             }
+            AccountFormCard { form, generation, sym: sym.clone() }
+        }
+    }
+}
 
-            Card {
-                CardHeader { CardTitle { if editing { "Edit account" } else { "Add account" } } }
-                for g in [generation()] {
-                CardContent { key: "{g}", class: "flex flex-col gap-4",
-                    Field { label: "Type",
-                        NativeSelect {
-                            value: form.read().kind.key().to_string(),
-                            options: kind_options.clone(),
-                            onchange: move |v: String| {
-                                if let Some(k) = AccountKind::from_key(&v) {
-                                    let mut f = form.write();
-                                    if f.id == 0 {
-                                        // Fresh form: adopt the type's defaults but keep typed values.
-                                        let keep = (f.name.clone(), f.balance.clone());
-                                        *f = AccountForm::blank(k);
-                                        (f.name, f.balance) = keep;
-                                    } else {
-                                        f.kind = k;
-                                    }
-                                    drop(f);
-                                    generation += 1;
+/// The add/edit form. Its fields depend on the selected account type.
+#[component]
+fn AccountFormCard(form: Signal<AccountForm>, generation: Signal<u32>, sym: String) -> Element {
+    let mut store = use_store();
+    let mut form = form;
+    let mut generation = generation;
+    let mut error = use_signal(|| None::<String>);
+    let f = form.read().clone();
+    let editing = f.id != 0;
+    let sp = spec(f.kind);
+    let kind_options: Vec<(String, String)> =
+        AccountKind::ALL.iter().map(|k| (k.key().to_string(), k.label().to_string())).collect();
+
+    let save = move |_| {
+        let res = form.read().to_account();
+        match res {
+            Ok(a) => {
+                error.set(None);
+                store.mutate(if a.id == 0 { "Account added" } else { "Account saved" }, |db| db.save_account(&a).map(|_| ()));
+                form.set(AccountForm::new());
+                generation += 1;
+            }
+            Err(e) => error.set(Some(e)),
+        }
+    };
+
+    rsx! {
+        Card {
+            CardHeader {
+                CardTitle { if editing { "Edit {sp.noun}" } else { "Add {sp.noun}" } }
+                CardDescription { "{sp.intro}" }
+            }
+            for g in [generation()] {
+            CardContent { key: "{g}", class: "flex flex-col gap-4",
+                Field { label: "Type",
+                    NativeSelect {
+                        value: f.kind.key().to_string(),
+                        options: kind_options.clone(),
+                        onchange: move |v: String| {
+                            if let Some(k) = AccountKind::from_key(&v) {
+                                let mut f = form.write();
+                                if f.id == 0 {
+                                    // New account: take the type's defaults, keep name and balance.
+                                    let keep = (f.name.clone(), f.balance.clone(), f.notes.clone());
+                                    *f = AccountForm::blank(k);
+                                    (f.name, f.balance, f.notes) = keep;
+                                } else {
+                                    f.kind = k;
                                 }
-                            },
+                            }
+                        },
+                    }
+                }
+                Field { label: "Name",
+                    Input { value: f.name.clone(), placeholder: sp.name_placeholder,
+                        oninput: move |e: FormEvent| form.write().name = e.value() }
+                }
+                Field { label: "{sp.balance_label} ({sym})", hint: sp.balance_hint.map(str::to_string),
+                    Input { value: f.balance.clone(), placeholder: "0",
+                        oninput: move |e: FormEvent| form.write().balance = e.value() }
+                }
+                // Type-specific fields remount when the type changes so they show its defaults.
+                for k in [f.kind] {
+                    div { key: "{k.key()}", class: "contents",
+                        if let Some((label, hint)) = sp.return_field {
+                            Field { label, hint: hint.to_string(),
+                                Input { value: f.ret.clone(),
+                                    oninput: move |e: FormEvent| form.write().ret = e.value() }
+                            }
                         }
-                    }
-                    Field { label: "Name",
-                        Input { value: form.read().name.clone(), placeholder: "e.g. Chase checking",
-                            oninput: move |e: FormEvent| form.write().name = e.value() }
-                    }
-                    Field { label: "Current balance ({sym})", hint: "For brokerage/IRA: cash portion, or the total if you don't list holdings.",
-                        Input { value: form.read().balance.clone(), placeholder: "0",
-                            oninput: move |e: FormEvent| form.write().balance = e.value() }
-                    }
-                    Field { label: "Expected yearly return / APY %",
-                        hint: "Long-run stock market average is often assumed at 6–8%; savings use APY.",
-                        Input { value: form.read().ret.clone(),
-                            oninput: move |e: FormEvent| form.write().ret = e.value() }
-                    }
-                    div { class: "grid grid-cols-2 gap-3",
-                        Field { label: "Your monthly contribution",
-                            Input { value: form.read().contrib.clone(),
-                                oninput: move |e: FormEvent| form.write().contrib = e.value() }
-                        }
-                        Field { label: "Employer match / month",
-                            Input { value: form.read().matched.clone(),
-                                oninput: move |e: FormEvent| form.write().matched = e.value() }
-                        }
-                    }
-                    div { class: "flex items-start justify-between gap-3",
-                        div { class: "flex flex-col",
-                            span { class: "text-sm", "Contribution comes out of checking" }
-                            span { class: "text-xs text-muted-foreground",
-                                "Turn off for payroll deductions like a 401(k): your entered take-home pay already excludes them." }
-                        }
-                        Switch { checked: form.read().from_cash, aria_label: "Contribution from checking",
-                            onchange: move |v| form.write().from_cash = v }
-                    }
-                    Field { label: "Notes",
-                        Input { value: form.read().notes.clone(), oninput: move |e: FormEvent| form.write().notes = e.value() }
-                    }
-                    if let Some(e) = error() {
-                        p { class: "text-sm text-destructive", "{e}" }
-                    }
-                    div { class: "flex gap-2",
-                        Button { onclick: save, Icon { name: IconName::Plus } if editing { "Save changes" } else { "Add account" } }
-                        if editing {
-                            Button { variant: ButtonVariant::Outline, onclick: move |_| { form.set(AccountForm::new()); generation += 1; }, "Cancel" }
+                        if let Some((label, hint)) = sp.contrib_field {
+                            div { class: if sp.match_label.is_some() { "grid grid-cols-2 items-end gap-3" } else { "grid grid-cols-1 gap-3" },
+                                Field { label: "{label} ({sym})",
+                                    Input { value: f.contrib.clone(), placeholder: "0",
+                                        oninput: move |e: FormEvent| form.write().contrib = e.value() }
+                                }
+                                if let Some(m) = sp.match_label {
+                                    Field { label: "{m} ({sym})",
+                                        Input { value: f.matched.clone(), placeholder: "0",
+                                            oninput: move |e: FormEvent| form.write().matched = e.value() }
+                                    }
+                                }
+                            }
+                            p { class: "-mt-2 text-xs text-muted-foreground", "{hint}" }
+                            if let Funding::Choice(_) = sp.funding {
+                                div { class: "flex items-start justify-between gap-3",
+                                    div { class: "flex flex-col",
+                                        span { class: "text-sm", "Paid from checking" }
+                                        span { class: "text-xs text-muted-foreground",
+                                            "Off if it's deducted from your paycheck (your take-home pay already excludes it)." }
+                                    }
+                                    Switch { checked: f.from_cash, aria_label: "Paid from checking",
+                                        onchange: move |v| form.write().from_cash = v }
+                                }
+                            }
                         }
                     }
                 }
+                Field { label: "Notes",
+                    Input { value: f.notes.clone(), oninput: move |e: FormEvent| form.write().notes = e.value() }
                 }
+                if let Some(e) = error() {
+                    p { class: "text-sm text-destructive", "{e}" }
+                }
+                div { class: "flex gap-2",
+                    Button { onclick: save, Icon { name: IconName::Plus } if editing { "Save changes" } else { "Add {sp.noun}" } }
+                    if editing {
+                        Button { variant: ButtonVariant::Outline,
+                            onclick: move |_| { error.set(None); form.set(AccountForm::new()); generation += 1; }, "Cancel" }
+                    }
+                }
+            }
             }
         }
     }
@@ -392,5 +560,56 @@ fn HoldingRow(holding: Holding, sym: String) -> Element {
                     onclick: move |_| store.mutate("Holding removed", |db| db.delete_holding(id)), Icon { name: IconName::Trash } }
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn form(kind: AccountKind) -> AccountForm {
+        AccountForm {
+            name: "x".into(),
+            balance: "1000".into(),
+            ret: "5".into(),
+            contrib: "200".into(),
+            matched: "50".into(),
+            from_cash: true,
+            ..AccountForm::blank(kind)
+        }
+    }
+
+    #[test]
+    fn fields_follow_account_type() {
+        let a = form(AccountKind::Checking).to_account().unwrap();
+        assert_eq!((a.annual_return_pct, a.monthly_contribution, a.employer_match_monthly), (0.0, 0.0, 0.0));
+        assert!(!a.contribution_from_cash);
+
+        let a = form(AccountKind::Savings).to_account().unwrap();
+        assert_eq!((a.annual_return_pct, a.monthly_contribution, a.employer_match_monthly), (5.0, 200.0, 0.0));
+        assert!(a.contribution_from_cash);
+
+        // 401(k): always payroll, keeps the match even if the switch state says otherwise.
+        let a = form(AccountKind::Retirement401k).to_account().unwrap();
+        assert_eq!((a.monthly_contribution, a.employer_match_monthly), (200.0, 50.0));
+        assert!(!a.contribution_from_cash);
+
+        // IRA: user's choice, no match.
+        let mut f = form(AccountKind::RothIra);
+        f.from_cash = false;
+        let a = f.to_account().unwrap();
+        assert_eq!(a.employer_match_monthly, 0.0);
+        assert!(!a.contribution_from_cash);
+
+        let a = form(AccountKind::Other).to_account().unwrap();
+        assert_eq!((a.annual_return_pct, a.monthly_contribution), (5.0, 0.0));
+    }
+
+    #[test]
+    fn defaults_per_type() {
+        assert!(AccountForm::blank(AccountKind::RothIra).from_cash);
+        assert!(!AccountForm::blank(AccountKind::Hsa).from_cash);
+        assert!(!AccountForm::blank(AccountKind::Retirement401k).from_cash);
+        assert_eq!(AccountForm::blank(AccountKind::Savings).ret, "4");
     }
 }

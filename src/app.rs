@@ -99,6 +99,7 @@ pub fn App() -> Element {
 /// - When `window.__pfNatural` is true, wheel and touchpad scrolling is reversed
 ///   ("natural scrolling"), applied to the nearest element that can scroll that way.
 const BRIDGE_JS: &str = r#"
+document.getElementById('boot')?.remove();
 if (!window.__pfBridge) {
   window.__pfBridge = true;
   window.addEventListener('keydown', (e) => {
@@ -127,6 +128,36 @@ if (!window.__pfBridge) {
     e.preventDefault();
     el.scrollBy({ left: dx, top: dy, behavior: e.deltaMode === 0 && Math.abs(e.deltaY) < 40 ? 'auto' : 'smooth' });
   }, { passive: false, capture: true });
+}
+"#;
+
+/// Latency probe (only installed when PENGUINFIN_PERF is set): time from an input event to the DOM update and to the next
+/// painted frame (double requestAnimationFrame).
+const PERF_JS: &str = r#"
+if (!window.__pfPerf) {
+  window.__pfPerf = true;
+  let t0 = 0, label = '', dom = -1, pending = false;
+  const report = () => {
+    if (pending || !t0) return;
+    pending = true;
+    requestAnimationFrame(() => requestAnimationFrame(() => {
+      dioxus.send(`${label} dom=${dom < 0 ? '-' : dom.toFixed(1)}ms frame=${(performance.now() - t0).toFixed(1)}ms`);
+      t0 = 0; pending = false;
+    }));
+  };
+  new MutationObserver(() => {
+    if (t0 && dom < 0) { dom = performance.now() - t0; report(); }
+  }).observe(document.body, { subtree: true, childList: true, attributes: true, characterData: true });
+  for (const ev of ['pointerdown', 'keydown', 'change']) {
+    window.addEventListener(ev, (e) => {
+      if (t0) return;
+      t0 = performance.now(); dom = -1;
+      const el = e.target;
+      label = `${ev}:${el.tagName || ''}${el.dataset && el.dataset.name ? '.' + el.dataset.name : ''}`;
+      // If nothing changes in the DOM, report the next frame anyway.
+      setTimeout(report, 50);
+    }, true);
+  }
 }
 "#;
 
@@ -162,6 +193,18 @@ fn Shell() -> Element {
                 set_ui_scale(&mut store, next);
             }
         });
+    });
+
+    // PENGUINFIN_PERF=1 prints input-to-frame latency for each interaction.
+    use_hook(|| {
+        if std::env::var_os("PENGUINFIN_PERF").is_some() {
+            spawn(async move {
+                let mut perf = document::eval(PERF_JS);
+                while let Ok(line) = perf.recv::<String>().await {
+                    eprintln!("[perf] {line}");
+                }
+            });
+        }
     });
 
     // Keep browser-side state in sync with settings.
@@ -216,7 +259,10 @@ fn Shell() -> Element {
                         div { class: "hidden px-3 text-[0.6875rem] text-muted-foreground @5xl/app:block", "Data stays on this computer." }
                     }
                 }
-                main { class: "@container min-w-0 flex-1 overflow-y-auto",
+                // Keyed by page: switching pages creates a fresh scroll area, so every page
+                // opens at the top instead of where it was last left.
+                for p in [page()] {
+                main { key: "{p:?}", class: "@container min-w-0 flex-1 overflow-y-auto",
                     div { class: "mx-auto flex max-w-6xl flex-col gap-6 p-4 @2xl:p-6 @3xl:p-8",
                         match page() {
                             Page::Dashboard => rsx! { views::dashboard::Dashboard { on_nav: move |p| page.set(p) } },
@@ -228,6 +274,7 @@ fn Shell() -> Element {
                             Page::Settings => rsx! { views::settings::SettingsPage {} },
                         }
                     }
+                }
                 }
             }
             if let Some(f) = flash() {
