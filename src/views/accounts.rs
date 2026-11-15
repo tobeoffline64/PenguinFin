@@ -37,6 +37,10 @@ struct KindSpec {
     match_label: Option<&'static str>,
 }
 
+/// Quick picks for an account's purpose.
+const PURPOSES: [&str; 9] =
+    ["Everyday spending", "Bills", "Emergency fund", "Medical", "Food", "Car", "Home", "Travel", "Gifts"];
+
 const MARKET_HINT: &str = "Long-run stock market averages are often assumed at 6–8% a year.";
 
 fn spec(kind: AccountKind) -> KindSpec {
@@ -174,6 +178,8 @@ struct AccountForm {
     from_cash: bool,
     matched: String,
     notes: String,
+    purpose: String,
+    minimum: String,
 }
 
 impl AccountForm {
@@ -195,6 +201,8 @@ impl AccountForm {
             },
             matched: "0".into(),
             notes: String::new(),
+            purpose: String::new(),
+            minimum: String::new(),
         }
     }
     fn from_account(a: &Account) -> Self {
@@ -208,6 +216,8 @@ impl AccountForm {
             from_cash: a.contribution_from_cash,
             matched: num_str(a.employer_match_monthly),
             notes: a.notes.clone(),
+            purpose: a.purpose.clone(),
+            minimum: if a.minimum_balance > 0.0 { num_str(a.minimum_balance) } else { String::new() },
         }
     }
     /// Build the account, ignoring fields the selected type doesn't use.
@@ -234,6 +244,8 @@ impl AccountForm {
             } && has_contrib,
             employer_match_monthly: if sp.match_label.is_some() { num(&self.matched).max(0.0) } else { 0.0 },
             notes: self.notes.trim().into(),
+            purpose: self.purpose.trim().into(),
+            minimum_balance: if self.minimum.trim().is_empty() { 0.0 } else { parse_num(&self.minimum).ok_or("Minimum balance must be a number.")?.max(0.0) },
         })
     }
 }
@@ -311,6 +323,8 @@ fn AccountFormCard(form: Signal<AccountForm>, generation: Signal<u32>, sym: Stri
     let mut form = form;
     let mut generation = generation;
     let mut error = use_signal(|| None::<String>);
+    // Bumped by a purpose chip, to remount just the purpose input with the new text.
+    let mut purpose_gen = use_signal(|| 0u32);
     let market = store.data.read().market.clone();
     let f = form.read().clone();
     let editing = f.id != 0;
@@ -348,9 +362,9 @@ fn AccountFormCard(form: Signal<AccountForm>, generation: Signal<u32>, sym: Stri
                                 let mut f = form.write();
                                 if f.id == 0 {
                                     // New account: take the type's defaults, keep name and balance.
-                                    let keep = (f.name.clone(), f.balance.clone(), f.notes.clone());
+                                    let keep = (f.name.clone(), f.balance.clone(), f.notes.clone(), f.purpose.clone(), f.minimum.clone());
                                     *f = AccountForm::blank(k);
-                                    (f.name, f.balance, f.notes) = keep;
+                                    (f.name, f.balance, f.notes, f.purpose, f.minimum) = keep;
                                 } else {
                                     f.kind = k;
                                 }
@@ -365,6 +379,30 @@ fn AccountFormCard(form: Signal<AccountForm>, generation: Signal<u32>, sym: Stri
                 Field { label: "{sp.balance_label} ({sym})", hint: sp.balance_hint.map(str::to_string),
                     Input { value: f.balance.clone(), placeholder: "0",
                         oninput: move |e: FormEvent| form.write().balance = e.value() }
+                }
+                Field { label: "Purpose (optional)", hint: "What this account's money is set aside for.",
+                    for pg in [purpose_gen()] {
+                        Input { key: "{pg}", value: f.purpose.clone(), placeholder: "e.g. Medical, Food, Emergency fund",
+                            oninput: move |e: FormEvent| form.write().purpose = e.value() }
+                    }
+                    div { class: "flex flex-wrap gap-1",
+                        for c in PURPOSES.iter() {
+                            button {
+                                class: "cursor-pointer rounded-full border px-2 py-0.5 text-[0.6875rem] text-muted-foreground hover:bg-accent",
+                                onclick: move |_| { form.write().purpose = c.to_string(); purpose_gen += 1; },
+                                "{c}"
+                            }
+                        }
+                    }
+                }
+                Field { label: "Minimum balance to keep ({sym})",
+                    hint: if f.kind.group() == AccountGroup::Cash {
+                        "Your operating baseline. Savings goals never spend below this."
+                    } else {
+                        "A floor to keep an eye on; the account is flagged if it drops below."
+                    },
+                    Input { value: f.minimum.clone(), placeholder: "0",
+                        oninput: move |e: FormEvent| form.write().minimum = e.value() }
                 }
                 // Type-specific fields remount when the type changes so they show its defaults.
                 for k in [f.kind] {
@@ -444,6 +482,20 @@ fn AccountItem(
                     div { class: "flex items-center gap-2",
                         span { class: "font-medium", "{account.name}" }
                         Badge { variant: BadgeVariant::Secondary, size: BadgeSize::Sm, "{account.kind.label()}" }
+                    }
+                    if !account.purpose.is_empty() || account.minimum_balance > 0.0 {
+                        div { class: "flex flex-wrap items-center gap-2 text-xs",
+                            if !account.purpose.is_empty() {
+                                Badge { variant: BadgeVariant::Info, size: BadgeSize::Sm, "{account.purpose}" }
+                            }
+                            if account.minimum_balance > 0.0 {
+                                span { class: "text-muted-foreground", "Keep at least {money(account.minimum_balance, &sym)}" }
+                            }
+                            if account.minimum_balance > 0.0 && value < account.minimum_balance {
+                                span { class: "font-medium text-destructive",
+                                    "Below minimum by {money(account.minimum_balance - value, &sym)}" }
+                            }
+                        }
                     }
                     div { class: "text-xs text-muted-foreground",
                         "{num_str(account.annual_return_pct)}%/yr"

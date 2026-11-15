@@ -26,7 +26,7 @@ pub fn default_db_path() -> PathBuf {
     data_dir().join("penguinfin.db")
 }
 
-const SCHEMA_VERSION: i64 = 2;
+const SCHEMA_VERSION: i64 = 3;
 
 pub struct Db {
     conn: Connection,
@@ -127,7 +127,27 @@ impl Db {
                 )
                 .map_err(e)?;
         }
-        const { assert!(SCHEMA_VERSION == 2, "add a migration step above") };
+        if version < 3 {
+            self.conn
+                .execute_batch(
+                    "BEGIN;
+                ALTER TABLE accounts ADD COLUMN purpose TEXT NOT NULL DEFAULT '';
+                ALTER TABLE accounts ADD COLUMN minimum_balance REAL NOT NULL DEFAULT 0;
+                CREATE TABLE IF NOT EXISTS goals (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    name TEXT NOT NULL,
+                    cost REAL NOT NULL,
+                    target_date TEXT,
+                    priority INTEGER NOT NULL DEFAULT 0,
+                    notes TEXT NOT NULL DEFAULT '',
+                    purchased_on TEXT
+                );
+                PRAGMA user_version = 3;
+                COMMIT;",
+                )
+                .map_err(e)?;
+        }
+        const { assert!(SCHEMA_VERSION == 3, "add a migration step above") };
         Ok(())
     }
 
@@ -138,6 +158,7 @@ impl Db {
             flows: self.flows()?,
             accounts: self.accounts()?,
             holdings: self.holdings()?,
+            goals: self.goals()?,
             settings: self.settings()?,
             fred: self.fred_config()?,
             market: self.market_data()?,
@@ -253,6 +274,8 @@ impl Db {
                     contribution_from_cash: r.get::<_, i64>("contribution_from_cash")? != 0,
                     employer_match_monthly: r.get("employer_match_monthly")?,
                     notes: r.get("notes")?,
+                    purpose: r.get("purpose")?,
+                    minimum_balance: r.get("minimum_balance")?,
                 })
             })
             .map_err(e)?;
@@ -361,25 +384,8 @@ impl Db {
             self.conn
                 .execute(
                     "INSERT INTO accounts (name, kind, balance, annual_return_pct, monthly_contribution,
-                     contribution_from_cash, employer_match_monthly, notes) VALUES (?1,?2,?3,?4,?5,?6,?7,?8)",
-                    params![
-                        a.name,
-                        a.kind.key(),
-                        a.balance,
-                        a.annual_return_pct,
-                        a.monthly_contribution,
-                        a.contribution_from_cash as i64,
-                        a.employer_match_monthly,
-                        a.notes
-                    ],
-                )
-                .map_err(e)?;
-            Ok(self.conn.last_insert_rowid())
-        } else {
-            self.conn
-                .execute(
-                    "UPDATE accounts SET name=?1, kind=?2, balance=?3, annual_return_pct=?4, monthly_contribution=?5,
-                     contribution_from_cash=?6, employer_match_monthly=?7, notes=?8 WHERE id=?9",
+                     contribution_from_cash, employer_match_monthly, notes, purpose, minimum_balance)
+                     VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10)",
                     params![
                         a.name,
                         a.kind.key(),
@@ -389,6 +395,29 @@ impl Db {
                         a.contribution_from_cash as i64,
                         a.employer_match_monthly,
                         a.notes,
+                        a.purpose,
+                        a.minimum_balance
+                    ],
+                )
+                .map_err(e)?;
+            Ok(self.conn.last_insert_rowid())
+        } else {
+            self.conn
+                .execute(
+                    "UPDATE accounts SET name=?1, kind=?2, balance=?3, annual_return_pct=?4, monthly_contribution=?5,
+                     contribution_from_cash=?6, employer_match_monthly=?7, notes=?8, purpose=?9, minimum_balance=?10
+                     WHERE id=?11",
+                    params![
+                        a.name,
+                        a.kind.key(),
+                        a.balance,
+                        a.annual_return_pct,
+                        a.monthly_contribution,
+                        a.contribution_from_cash as i64,
+                        a.employer_match_monthly,
+                        a.notes,
+                        a.purpose,
+                        a.minimum_balance,
                         a.id
                     ],
                 )
@@ -428,6 +457,76 @@ impl Db {
         Ok(())
     }
 
+    pub fn goals(&self) -> Result<Vec<Goal>> {
+        let mut st = self.conn.prepare("SELECT * FROM goals ORDER BY priority, id").map_err(e)?;
+        let rows = st
+            .query_map([], |r| {
+                let target: Option<String> = r.get("target_date")?;
+                let bought: Option<String> = r.get("purchased_on")?;
+                Ok(Goal {
+                    id: r.get("id")?,
+                    name: r.get("name")?,
+                    cost: r.get("cost")?,
+                    target_date: target.as_deref().filter(|s| !s.is_empty()).map(date_from_sql),
+                    priority: r.get("priority")?,
+                    notes: r.get("notes")?,
+                    purchased_on: bought.as_deref().filter(|s| !s.is_empty()).map(date_from_sql),
+                })
+            })
+            .map_err(e)?;
+        rows.collect::<rusqlite::Result<Vec<_>>>().map_err(e)
+    }
+
+    /// Insert (id == 0, appended after the last goal) or update a goal.
+    pub fn save_goal(&self, g: &Goal) -> Result<i64> {
+        let target = g.target_date.map(date_to_sql);
+        let bought = g.purchased_on.map(date_to_sql);
+        if g.id == 0 {
+            let next: i64 = self
+                .conn
+                .query_row("SELECT COALESCE(MAX(priority), 0) + 1 FROM goals", [], |r| r.get(0))
+                .map_err(e)?;
+            self.conn
+                .execute(
+                    "INSERT INTO goals (name, cost, target_date, priority, notes, purchased_on) VALUES (?1,?2,?3,?4,?5,?6)",
+                    params![g.name, g.cost, target, if g.priority > 0 { g.priority } else { next }, g.notes, bought],
+                )
+                .map_err(e)?;
+            Ok(self.conn.last_insert_rowid())
+        } else {
+            self.conn
+                .execute(
+                    "UPDATE goals SET name=?1, cost=?2, target_date=?3, priority=?4, notes=?5, purchased_on=?6 WHERE id=?7",
+                    params![g.name, g.cost, target, g.priority, g.notes, bought, g.id],
+                )
+                .map_err(e)?;
+            Ok(g.id)
+        }
+    }
+
+    pub fn delete_goal(&self, id: i64) -> Result<()> {
+        self.conn.execute("DELETE FROM goals WHERE id=?1", [id]).map_err(e)?;
+        Ok(())
+    }
+
+    /// Swap a goal's priority with its neighbour (-1 = up, +1 = down) among open goals.
+    pub fn move_goal(&mut self, id: i64, direction: i32) -> Result<()> {
+        let open: Vec<Goal> = self.goals()?.into_iter().filter(|g| g.purchased_on.is_none()).collect();
+        let Some(i) = open.iter().position(|g| g.id == id) else { return Ok(()) };
+        let j = i as i64 + direction as i64;
+        if j < 0 || j as usize >= open.len() {
+            return Ok(());
+        }
+        let tx = self.conn.transaction().map_err(e)?;
+        // Renumber densely in the new order so equal priorities can't get stuck.
+        let mut order: Vec<i64> = open.iter().map(|g| g.id).collect();
+        order.swap(i, j as usize);
+        for (n, gid) in order.iter().enumerate() {
+            tx.execute("UPDATE goals SET priority=?1 WHERE id=?2", params![n as i64 + 1, gid]).map_err(e)?;
+        }
+        tx.commit().map_err(e)
+    }
+
     pub fn save_settings(&self, s: &Settings) -> Result<()> {
         let pairs = [
             ("projection_years", s.projection_years.to_string()),
@@ -452,7 +551,7 @@ impl Db {
     /// Replace all data (used by JSON import and sample data).
     pub fn replace_all(&mut self, data: &AppData) -> Result<()> {
         let tx = self.conn.transaction().map_err(e)?;
-        tx.execute_batch("DELETE FROM holdings; DELETE FROM accounts; DELETE FROM cash_flows;").map_err(e)?;
+        tx.execute_batch("DELETE FROM holdings; DELETE FROM accounts; DELETE FROM cash_flows; DELETE FROM goals;").map_err(e)?;
         tx.commit().map_err(e)?;
         // Accounts get new ids; remap holdings onto them.
         let mut id_map = std::collections::HashMap::new();
@@ -467,6 +566,9 @@ impl Db {
         }
         for f in &data.flows {
             self.save_flow(&CashFlow { id: 0, ..f.clone() })?;
+        }
+        for g in &data.goals {
+            self.save_goal(&Goal { id: 0, ..g.clone() })?;
         }
         self.save_settings(&data.settings)?;
         Ok(())
@@ -553,6 +655,69 @@ mod tests {
     }
 
     #[test]
+    fn goals_crud_order_and_backup() {
+        let mut db = Db::open_in_memory().unwrap();
+        let g = |name: &str, cost| Goal {
+            id: 0,
+            name: name.into(),
+            cost,
+            target_date: None,
+            priority: 0,
+            notes: String::new(),
+            purchased_on: None,
+        };
+        let a = db.save_goal(&g("Laptop", 1500.0)).unwrap();
+        let b = db.save_goal(&g("Bike", 800.0)).unwrap();
+        let c = db.save_goal(&g("Trip", 3000.0)).unwrap();
+        let names = |db: &Db| db.goals().unwrap().into_iter().map(|g| g.name).collect::<Vec<_>>();
+        assert_eq!(names(&db), ["Laptop", "Bike", "Trip"]);
+        db.move_goal(c, -1).unwrap();
+        assert_eq!(names(&db), ["Laptop", "Trip", "Bike"]);
+        db.move_goal(a, -1).unwrap(); // already first: no-op
+        assert_eq!(names(&db), ["Laptop", "Trip", "Bike"]);
+
+        let mut bike = db.goals().unwrap().into_iter().find(|x| x.id == b).unwrap();
+        bike.purchased_on = NaiveDate::from_ymd_opt(2026, 11, 15);
+        bike.target_date = NaiveDate::from_ymd_opt(2027, 1, 1);
+        db.save_goal(&bike).unwrap();
+        let loaded = db.load().unwrap();
+        assert_eq!(loaded.goals.iter().find(|x| x.id == b).unwrap(), &bike);
+
+        // Backups include goals; restore brings them back.
+        let mut restored = Db::open_in_memory().unwrap();
+        restored.replace_all(&loaded).unwrap();
+        assert_eq!(names(&restored), ["Laptop", "Trip", "Bike"]);
+        db.delete_goal(a).unwrap();
+        assert_eq!(names(&db), ["Trip", "Bike"]);
+    }
+
+    #[test]
+    fn account_purpose_and_minimum_roundtrip() {
+        let db = Db::open_in_memory().unwrap();
+        let id = db
+            .save_account(&Account {
+                id: 0,
+                name: "Medical fund".into(),
+                kind: AccountKind::Savings,
+                balance: 2500.0,
+                annual_return_pct: 4.0,
+                monthly_contribution: 0.0,
+                contribution_from_cash: true,
+                employer_match_monthly: 0.0,
+                notes: String::new(),
+                purpose: "Medical".into(),
+                minimum_balance: 2000.0,
+            })
+            .unwrap();
+        let a = db.accounts().unwrap().into_iter().find(|a| a.id == id).unwrap();
+        assert_eq!((a.purpose.as_str(), a.minimum_balance), ("Medical", 2000.0));
+        // Old backups without the new fields still load.
+        let old: Account = serde_json::from_str(r#"{"id":1,"name":"x","kind":"Checking","balance":1.0,"annual_return_pct":0.0,
+            "monthly_contribution":0.0,"contribution_from_cash":false,"employer_match_monthly":0.0,"notes":""}"#).unwrap();
+        assert_eq!((old.purpose.as_str(), old.minimum_balance), ("", 0.0));
+    }
+
+    #[test]
     fn backups_never_contain_the_api_key() {
         let mut data = AppData::default();
         data.fred.api_key = "secretsecretsecretsecretsecret12".into();
@@ -582,6 +747,9 @@ mod tests {
         let data = db.load().unwrap();
         assert_eq!(data.accounts.len(), 1);
         assert!(data.market.values.is_empty());
+        // v3 columns added with defaults.
+        assert_eq!(data.accounts[0].minimum_balance, 0.0);
+        assert!(data.goals.is_empty());
     }
 
     #[test]

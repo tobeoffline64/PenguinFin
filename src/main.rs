@@ -21,6 +21,7 @@ const BOOT_SKELETON: &str = r#"<div id="boot" aria-hidden="true" class="@contain
     <div class="pf-sk h-8 rounded-md"></div><div class="pf-sk h-8 rounded-md"></div>
     <div class="pf-sk h-8 rounded-md"></div><div class="pf-sk h-8 rounded-md"></div>
     <div class="pf-sk h-8 rounded-md"></div><div class="pf-sk h-8 rounded-md"></div>
+    <div class="pf-sk h-8 rounded-md"></div>
   </div>
   <div class="@container flex flex-1 flex-col gap-6 p-4 @3xl:p-8">
     <div class="pf-sk h-8 w-56 rounded-md"></div>

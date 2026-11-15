@@ -18,6 +18,11 @@ Built in **Rust** with **[Dioxus](https://dioxuslabs.com) desktop** and componen
 - **Accounts & investments**: checking, savings, brokerage, 401(k)/403(b), Traditional/Roth IRA, HSA,
   pension, other. Each account has an expected return/APY, a monthly contribution (from checking or via
   payroll), employer match, and optional **holdings** (symbol × shares × price).
+- **Savings goals**: things to buy with a price, optional "want it by" date and priority. Shows when each becomes
+  affordable from checking + savings while keeping every account's minimum balance, even through later bills in the
+  projection; how much more to save per month to hit a date; and spendable cash over time after the purchases.
+- **Account purposes & minimum balances**: tag accounts (Medical, Food, Emergency fund…) and set an operating
+  baseline; accounts below it are flagged and goals never spend it.
 - **Projections**: 1–80 years, nominal or inflation-adjusted ("today's dollars"), milestone cards,
   a year-by-year table, a warning when cash would run short, and **what-if** scenarios (extra income,
   extra spending, extra investing, lower/higher returns) that are not saved.
@@ -142,6 +147,7 @@ For quick UI work you can skip flatpak entirely: `cargo run` builds a debug bina
 | `src/model.rs` | Domain types, schedule math (occurrence dates) |
 | `src/projection.rs` | Monthly projection engine, upcoming payments, category totals |
 | `src/db.rs` | SQLite schema, migrations, CRUD, JSON backup |
+| `src/goals.rs` | Savings-goal planner (affordability under minimum balances) |
 | `src/fred.rs` | FRED API client: indicators, parallel fetch, parsing |
 | `src/prices.rs` | Price provider trait (manual in v1) |
 | `src/ui/` | Rust/UI components (copied from the registry, MIT; see `LICENSE-rust-ui`) |

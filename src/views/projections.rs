@@ -280,6 +280,8 @@ fn build_scenario(data: &AppData, wi: &WhatIf, today: NaiveDate) -> AppData {
             contribution_from_cash: true,
             employer_match_monthly: 0.0,
             notes: String::new(),
+            purpose: String::new(),
+            minimum_balance: 0.0,
         });
     }
     if wi.return_shift != 0.0 {

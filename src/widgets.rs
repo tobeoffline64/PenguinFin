@@ -73,6 +73,7 @@ pub enum IconName {
     Trash,
     Alert,
     ChevronDown,
+    Target,
 }
 
 fn icon_paths(i: IconName) -> &'static [&'static str] {
@@ -89,6 +90,7 @@ fn icon_paths(i: IconName) -> &'static [&'static str] {
         IconName::Trash => &["M3 6h18", "M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6", "M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"],
         IconName::Alert => &["m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z", "M12 9v4", "M12 17h.01"],
         IconName::ChevronDown => &["m6 9 6 6 6-6"],
+        IconName::Target => &["M2 12a10 10 0 1 0 20 0a10 10 0 1 0 -20 0", "M6 12a6 6 0 1 0 12 0a6 6 0 1 0 -12 0", "M10 12a2 2 0 1 0 4 0a2 2 0 1 0 -4 0"],
     }
 }
 

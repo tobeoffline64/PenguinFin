@@ -50,6 +50,8 @@ pub fn sample_data(today: NaiveDate) -> AppData {
         contribution_from_cash: from_cash,
         employer_match_monthly: matched,
         notes: String::new(),
+        purpose: String::new(),
+        minimum_balance: 0.0,
     };
     let accounts = vec![
         acct(1, "Checking", AccountKind::Checking, 4200.0, 0.0, 0.0, false, 0.0),

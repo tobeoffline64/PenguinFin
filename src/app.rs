@@ -13,6 +13,7 @@ pub enum Page {
     Bills,
     Expenses,
     Accounts,
+    Goals,
     Projections,
     Settings,
 }
@@ -247,6 +248,7 @@ fn Shell() -> Element {
         (Page::Bills, "Bills", IconName::Bill),
         (Page::Expenses, "Recurring expenses", IconName::Expense),
         (Page::Accounts, "Accounts & investments", IconName::Accounts),
+        (Page::Goals, "Savings goals", IconName::Target),
         (Page::Projections, "Projections", IconName::Chart),
         (Page::Settings, "Settings & data", IconName::Settings),
     ];
@@ -294,6 +296,7 @@ fn Shell() -> Element {
                             Page::Bills => rsx! { views::flows::FlowsPage {  kind: penguinfin::model::FlowKind::Bill } },
                             Page::Expenses => rsx! { views::flows::FlowsPage {  kind: penguinfin::model::FlowKind::Expense } },
                             Page::Accounts => rsx! { views::accounts::AccountsPage {} },
+                            Page::Goals => rsx! { views::goals::GoalsPage { on_nav: move |p| page.set(p) } },
                             Page::Projections => rsx! { views::projections::ProjectionsPage {} },
                             Page::Settings => rsx! { views::settings::SettingsPage {} },
                         }

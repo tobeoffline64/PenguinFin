@@ -14,6 +14,7 @@
       <li>Upcoming payments for the next 30 days</li>
       <li>Checking, savings, brokerage, 401(k), IRA and HSA accounts with holdings</li>
       <li>Multi-decade projections with raises, inflation and expected returns</li>
+      <li>Savings goals that respect each account's minimum balance</li>
       <li>What-if scenarios and JSON backups</li>
       <li>Optional economic data from FRED (inflation, interest rates, market returns)</li>
     </ul>
@@ -22,6 +23,11 @@
   <developer id="io.github.tobeoffline64"><name>tobeoffline64</name></developer>
   <content_rating type="oars-1.1"/>
   <releases>
+    <release version="1.4.0" date="2026-11-15">
+      <description>
+        <p>Savings goals, plus purposes and minimum balances for accounts.</p>
+      </description>
+    </release>
     <release version="1.3.0" date="2026-11-15">
       <description>
         <p>Optional economic data from FRED: inflation, interest rates and market returns to inform projections.</p>

@@ -30,6 +30,10 @@ curl -fL -o /tmp/penguinfin.flatpak https://github.com/tobeoffline64/penguinfin/
 flatpak install --user -y --reinstall /tmp/penguinfin.flatpak
 ```
 
+## New in 1.4.0
+- **Savings goals.** List things you want to buy with their price, an optional "want it by" date, and a priority order. PenguinFin shows when each becomes affordable from checking and savings without dipping into your minimum balances, now or later in the projection, plus how much more to save per month if a date is too soon, and a chart of spendable cash after each purchase.
+- **Account purposes and minimum balances.** Give any account a purpose (Medical, Food, Emergency fund…) and a minimum balance to keep. Accounts below their minimum are flagged; goals never spend those baselines.
+
 ## New in 1.3.0
 - **Economic data from FRED (optional).** Add a free API key in Settings → Economic data to pull 10-year expected inflation, current CPI inflation, the fed funds rate, the 10-year Treasury yield, the 30-year mortgage rate and the S&P 500's 10-year average return.
   - Syncs in the background when PenguinFin starts (can be turned off) and on demand with **Sync now**. Startup and the UI never wait for it.

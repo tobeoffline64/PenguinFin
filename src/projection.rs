@@ -249,6 +249,8 @@ mod tests {
             contribution_from_cash: from_cash,
             employer_match_monthly: 0.0,
             notes: String::new(),
+            purpose: String::new(),
+            minimum_balance: 0.0,
         }
     }
 

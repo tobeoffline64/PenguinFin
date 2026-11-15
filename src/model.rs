@@ -318,6 +318,28 @@ pub struct Account {
     /// Employer match or other outside money added per month.
     pub employer_match_monthly: f64,
     pub notes: String,
+    /// What the money is for (e.g. "Medical", "Food"). Empty = general.
+    #[serde(default)]
+    pub purpose: String,
+    /// Operating baseline: the balance that should always stay in this account.
+    /// Savings goals never count it as spendable.
+    #[serde(default)]
+    pub minimum_balance: f64,
+}
+
+/// Something to buy, funded from checking and savings.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Goal {
+    pub id: i64,
+    pub name: String,
+    pub cost: f64,
+    /// Optional "want it by" date.
+    pub target_date: Option<NaiveDate>,
+    /// Lower = earlier. Goals are planned in this order.
+    pub priority: i64,
+    pub notes: String,
+    /// Set once bought; bought goals are no longer planned.
+    pub purchased_on: Option<NaiveDate>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -454,6 +476,8 @@ pub struct AppData {
     pub flows: Vec<CashFlow>,
     pub accounts: Vec<Account>,
     pub holdings: Vec<Holding>,
+    #[serde(default)]
+    pub goals: Vec<Goal>,
     pub settings: Settings,
     /// FRED settings (includes the API key, so never written to backups).
     #[serde(skip)]
@@ -491,6 +515,16 @@ impl AppData {
             .filter(|f| pred(f.kind))
             .filter(|f| f.end_date.is_none_or(|e| e >= today))
             .map(CashFlow::monthly_equivalent)
+            .sum()
+    }
+
+    /// Sum of the minimum balances of checking and savings accounts: cash that savings
+    /// goals must leave untouched.
+    pub fn cash_baseline(&self) -> f64 {
+        self.accounts
+            .iter()
+            .filter(|a| a.kind.group() == AccountGroup::Cash)
+            .map(|a| a.minimum_balance.max(0.0))
             .sum()
     }
 
