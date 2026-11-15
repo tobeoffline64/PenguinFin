@@ -58,6 +58,26 @@ The flatpak has the `network` permission because the Dioxus webview talks to the
 `127.0.0.1` socket, and WebKit's sandboxed network process can't reach it otherwise (the window stays
 blank). PenguinFin makes no outbound requests.
 
+### Updating
+
+Your data is kept. With the [GitHub CLI](https://cli.github.com) (`sudo apt install gh`, then `gh auth login` once):
+
+```bash
+gh release download --repo tobeoffline64/penguinfin --pattern penguinfin.flatpak --dir /tmp --clobber
+flatpak install --user -y --reinstall /tmp/penguinfin.flatpak
+```
+
+Or download `penguinfin.flatpak` from the [latest release](https://github.com/tobeoffline64/penguinfin/releases/latest) and run `flatpak install --user -y --reinstall penguinfin.flatpak` in the folder you saved it to.
+
+If flatpak says *"This version … is already installed"*, you already have the latest version.
+
+If the repository is public, this also works without the GitHub CLI:
+
+```bash
+curl -fL -o /tmp/penguinfin.flatpak https://github.com/tobeoffline64/penguinfin/releases/latest/download/penguinfin.flatpak
+flatpak install --user -y --reinstall /tmp/penguinfin.flatpak
+```
+
 Your database is at `~/.var/app/io.github.tobeoffline64.PenguinFin/data/penguinfin/penguinfin.db`.
 
 ## Releasing

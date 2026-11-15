@@ -10,6 +10,26 @@ flatpak run io.github.tobeoffline64.PenguinFin
 
 The first install also pulls the GNOME 49 runtime from Flathub.
 
+## Update an existing install
+
+Your data is kept. With the [GitHub CLI](https://cli.github.com) (`sudo apt install gh`, then `gh auth login` once):
+
+```bash
+gh release download --repo tobeoffline64/penguinfin --pattern penguinfin.flatpak --dir /tmp --clobber
+flatpak install --user -y --reinstall /tmp/penguinfin.flatpak
+```
+
+Or download `penguinfin.flatpak` from this page and run `flatpak install --user -y --reinstall penguinfin.flatpak` in the folder you saved it to.
+
+If flatpak says *"This version … is already installed"*, you already have the latest version.
+
+If the repository is public, this also works without the GitHub CLI:
+
+```bash
+curl -fL -o /tmp/penguinfin.flatpak https://github.com/tobeoffline64/penguinfin/releases/latest/download/penguinfin.flatpak
+flatpak install --user -y --reinstall /tmp/penguinfin.flatpak
+```
+
 ## New in 1.1.0
 - **Interface size**: Auto (scales with the window) or S / M / L / XL, from the sidebar, Settings, or Ctrl + / Ctrl − / Ctrl 0
 - **Responsive layout**: content reflows to the available space; the sidebar collapses to icons when space is tight
