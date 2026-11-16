@@ -502,6 +502,7 @@ impl BucketForm {
             monthly_add: num(&self.monthly_add, "Monthly top-up")?,
             target,
             notes: String::new(),
+            debt_id: None,
         })
     }
 }
@@ -554,15 +555,23 @@ fn BucketsPanel(account_id: i64, value: f64, buckets: Vec<Bucket>, sym: String) 
                 div { key: "{b.id}", class: "flex flex-col gap-1 rounded-md border bg-background px-3 py-2",
                     div { class: "flex items-center gap-2",
                         span { class: "flex-1 text-sm font-medium", "{b.name}" }
+                        if b.debt_id.is_some() {
+                            Badge { variant: BadgeVariant::Warning, size: BadgeSize::Sm, "Debt payment" }
+                        }
                         span { class: "text-sm font-semibold tabular-nums", {money(b.balance, &sym)} }
+                        if b.debt_id.is_none() {
                         Button { size: ButtonSize::IconXs, variant: ButtonVariant::Ghost, title: "Edit bucket",
                             onclick: { let b = b.clone(); move |_| { error.set(None); editing.set(Some(BucketForm::from_bucket(&b))); generation += 1; } },
                             Icon { name: IconName::Pencil, class: "size-3.5" } }
-                        Button { size: ButtonSize::IconXs, variant: ButtonVariant::Ghost, title: "Delete bucket (its bills fall back to this account)",
+                        }
+                        Button { size: ButtonSize::IconXs, variant: ButtonVariant::Ghost,
+                            title: if b.debt_id.is_some() { "Stop setting aside this debt's payments (the payoff plan continues)" }
+                                   else { "Delete bucket (its bills fall back to this account)" },
                             onclick: { let id = b.id; move |_| store.mutate("Bucket deleted", |db| db.delete_bucket(id)) },
                             Icon { name: IconName::Trash, class: "size-3.5" } }
                     }
                     div { class: "flex flex-wrap gap-x-3 text-xs text-muted-foreground",
+                        if b.debt_id.is_some() { span { "This month's planned payment · follows your debt payoff plan" } }
                         if b.monthly_add > 0.0 { span { "+{money(b.monthly_add, &sym)}/mo" } }
                         if let Some(t) = b.target { span { "target {money(t, &sym)}" } }
                     }

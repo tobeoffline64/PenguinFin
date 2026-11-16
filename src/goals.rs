@@ -278,6 +278,7 @@ mod tests {
             monthly_add: 200.0,
             target: None,
             notes: String::new(),
+            debt_id: None,
         });
         data.goals.push(goal(1, 2500.0, 1, None));
         let p = plan_goals(&data, d(2026, 1, 1), 2);

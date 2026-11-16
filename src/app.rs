@@ -40,7 +40,8 @@ impl Store {
     pub fn mutate(&mut self, ok_msg: &str, f: impl FnOnce(&mut Db) -> Result<(), String>) {
         let res = {
             let mut db = self.db.write();
-            f(&mut db).and_then(|_| db.load())
+            // Debt payment buckets always follow the current plan.
+            f(&mut db).and_then(|_| db.sync_debt_buckets()).and_then(|_| db.load())
         };
         match res {
             Ok(data) => {

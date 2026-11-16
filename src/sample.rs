@@ -80,6 +80,7 @@ pub fn sample_data(today: NaiveDate) -> AppData {
         monthly_add,
         target,
         notes: String::new(),
+        debt_id: None,
     };
     let buckets = vec![bucket(1, "Rainy day", 5000.0, 150.0, Some(10000.0)), bucket(2, "Car repairs", 600.0, 85.0, None)];
     flows.push(CashFlow {
@@ -124,6 +125,20 @@ pub fn sample_data(today: NaiveDate) -> AppData {
         debt(2, "Store card", DebtKind::CreditCard, 650.0, 29.99, 35.0),
         debt(3, "Student loan", DebtKind::StudentLoan, 14000.0, 5.5, 160.0),
     ];
+    // Each debt's payment is set aside in a bucket in checking (amounts follow the plan).
+    let mut buckets = buckets;
+    for (i, d) in debts.iter().enumerate() {
+        buckets.push(Bucket {
+            id: 3 + i as i64,
+            account_id: 1,
+            name: format!("{} payment", d.name),
+            balance: 0.0,
+            monthly_add: 0.0,
+            target: None,
+            notes: String::new(),
+            debt_id: Some(d.id),
+        });
+    }
     let settings = Settings { debt_extra_monthly: 250.0, ..Settings::default() };
     AppData { flows, accounts, holdings, buckets, goals, debts, settings, ..Default::default() }
 }

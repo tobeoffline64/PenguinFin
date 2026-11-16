@@ -33,6 +33,11 @@ The account card shows each bucket (with progress toward its target) and the **u
 and warns if the buckets add up to more than the balance. Money in buckets is reserved: savings goals
 won't spend it.
 
+### Debt payment buckets
+
+Debts can keep their payment set aside automatically in a bucket marked **Debt payment**. Its amount
+follows your [debt payoff](Debt-Payoff) plan, so it has no edit button. Delete it to stop setting money aside.
+
 ## Paying bills from an account or bucket
 
 On any bill or expense, choose **Paid from**: an account, or a bucket inside one

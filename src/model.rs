@@ -348,6 +348,10 @@ pub struct Bucket {
     /// Stop topping up once the bucket holds this much. `None` = no cap.
     pub target: Option<f64>,
     pub notes: String,
+    /// Set for a debt's payment bucket: it holds that debt's planned payment for the month
+    /// and is kept in sync automatically (see `Db::sync_debt_buckets`).
+    #[serde(default)]
+    pub debt_id: Option<i64>,
 }
 
 /// Something to buy, funded from checking and savings.
@@ -606,6 +610,26 @@ impl AppData {
             } else {
                 mf.received.push(f.name.clone());
                 mf.received_monthly += f.monthly_equivalent();
+            }
+        }
+        // Debt payments planned for this month from this account.
+        if !self.debts.is_empty() {
+            let step = crate::debt::Simulator::new(
+                &self.debts,
+                self.settings.debt_strategy,
+                self.settings.debt_extra_monthly,
+                true,
+            )
+            .step();
+            for (i, d) in self.debts.iter().enumerate() {
+                let account = d
+                    .account_id
+                    .filter(|id| self.accounts.iter().any(|a| a.id == *id))
+                    .or_else(|| self.primary_cash_account().map(|a| a.id));
+                if account == Some(account_id) && step.payments[i] > 0.0 {
+                    mf.paid.push(format!("{} (debt)", d.name));
+                    mf.paid_monthly += step.payments[i];
+                }
             }
         }
         mf

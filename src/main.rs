@@ -84,7 +84,11 @@ fn main() {
     // saved theme and UI size. The App takes ownership of it in `app::App`.
     let path = std::env::var_os("PENGUINFIN_DB").map(std::path::PathBuf::from).unwrap_or_else(default_db_path);
     let boot = Db::open(&path)
-        .and_then(|db| db.load().map(|d| (db, d)))
+        .and_then(|mut db| {
+            // A new month means new planned payments for debt buckets.
+            db.sync_debt_buckets()?;
+            db.load().map(|d| (db, d))
+        })
         .map_err(|e| format!("{}: {e}", path.display()));
     let settings = boot.as_ref().map(|(_, d)| d.settings.clone()).unwrap_or_default();
     app::set_boot(boot);

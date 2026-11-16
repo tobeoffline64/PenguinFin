@@ -43,7 +43,7 @@ pub fn default_db_path() -> PathBuf {
     data_dir().join("penguinfin.db")
 }
 
-const SCHEMA_VERSION: i64 = 5;
+const SCHEMA_VERSION: i64 = 6;
 
 pub struct Db {
     conn: Connection,
@@ -203,7 +203,17 @@ impl Db {
                 )
                 .map_err(e)?;
         }
-        const { assert!(SCHEMA_VERSION == 5, "add a migration step above") };
+        if version < 6 {
+            self.conn
+                .execute_batch(
+                    "BEGIN;
+                ALTER TABLE buckets ADD COLUMN debt_id INTEGER REFERENCES debts(id) ON DELETE CASCADE;
+                PRAGMA user_version = 6;
+                COMMIT;",
+                )
+                .map_err(e)?;
+        }
+        const { assert!(SCHEMA_VERSION == 6, "add a migration step above") };
         Ok(())
     }
 
@@ -582,6 +592,7 @@ impl Db {
                     monthly_add: r.get("monthly_add")?,
                     target: r.get("target")?,
                     notes: r.get("notes")?,
+                    debt_id: r.get("debt_id")?,
                 })
             })
             .map_err(e)?;
@@ -592,20 +603,85 @@ impl Db {
         if b.id == 0 {
             self.conn
                 .execute(
-                    "INSERT INTO buckets (account_id, name, balance, monthly_add, target, notes) VALUES (?1,?2,?3,?4,?5,?6)",
-                    params![b.account_id, b.name, b.balance, b.monthly_add, b.target, b.notes],
+                    "INSERT INTO buckets (account_id, name, balance, monthly_add, target, notes, debt_id)
+                     VALUES (?1,?2,?3,?4,?5,?6,?7)",
+                    params![b.account_id, b.name, b.balance, b.monthly_add, b.target, b.notes, b.debt_id],
                 )
                 .map_err(e)?;
             Ok(self.conn.last_insert_rowid())
         } else {
             self.conn
                 .execute(
-                    "UPDATE buckets SET account_id=?1, name=?2, balance=?3, monthly_add=?4, target=?5, notes=?6 WHERE id=?7",
-                    params![b.account_id, b.name, b.balance, b.monthly_add, b.target, b.notes, b.id],
+                    "UPDATE buckets SET account_id=?1, name=?2, balance=?3, monthly_add=?4, target=?5, notes=?6, debt_id=?7
+                     WHERE id=?8",
+                    params![b.account_id, b.name, b.balance, b.monthly_add, b.target, b.notes, b.debt_id, b.id],
                 )
                 .map_err(e)?;
             Ok(b.id)
         }
+    }
+
+    /// Give a debt its payment bucket (in the account that pays it), if it doesn't have one.
+    pub fn add_debt_bucket(&mut self, debt_id: i64) -> Result<()> {
+        let exists: bool = self
+            .conn
+            .query_row("SELECT EXISTS(SELECT 1 FROM buckets WHERE debt_id = ?1)", [debt_id], |r| r.get(0))
+            .map_err(e)?;
+        if !exists {
+            let data = self.load()?;
+            let Some(debt) = data.debts.iter().find(|d| d.id == debt_id) else { return Ok(()) };
+            let Some(account) = debt_account(&data, debt) else { return Err("Add a checking account first.".into()) };
+            self.save_bucket(&Bucket {
+                id: 0,
+                account_id: account,
+                name: format!("{} payment", debt.name),
+                balance: 0.0,
+                monthly_add: 0.0,
+                target: None,
+                notes: String::new(),
+                debt_id: Some(debt_id),
+            })?;
+        }
+        self.sync_debt_buckets()
+    }
+
+    /// Stop setting aside a debt's payments (removes its bucket; the debt plan continues).
+    pub fn remove_debt_bucket(&self, debt_id: i64) -> Result<()> {
+        self.conn.execute("DELETE FROM buckets WHERE debt_id = ?1", [debt_id]).map_err(e)?;
+        Ok(())
+    }
+
+    /// Keep debt payment buckets in step with the payoff plan: each one sits in the account
+    /// that pays its debt and holds that debt's planned payment for this month. Called after
+    /// every change, so balances, the extra amount and the strategy are always reflected.
+    pub fn sync_debt_buckets(&mut self) -> Result<()> {
+        let data = self.load()?;
+        if !data.buckets.iter().any(|b| b.debt_id.is_some()) {
+            return Ok(());
+        }
+        let this_month = crate::debt::Simulator::new(
+            &data.debts,
+            data.settings.debt_strategy,
+            data.settings.debt_extra_monthly,
+            true,
+        )
+        .step();
+        for b in data.buckets.iter().filter(|b| b.debt_id.is_some()) {
+            let Some(i) = data.debts.iter().position(|d| Some(d.id) == b.debt_id) else { continue };
+            let Some(account) = debt_account(&data, &data.debts[i]) else { continue };
+            let want = Bucket {
+                account_id: account,
+                name: format!("{} payment", data.debts[i].name),
+                balance: (this_month.payments[i] * 100.0).round() / 100.0,
+                monthly_add: 0.0,
+                target: None,
+                ..b.clone()
+            };
+            if want != *b {
+                self.save_bucket(&want)?;
+            }
+        }
+        Ok(())
     }
 
     /// Deleting a bucket moves bills paid from it back to its account.
@@ -726,11 +802,24 @@ impl Db {
                 self.save_holding(&Holding { id: 0, account_id: acc, ..h.clone() })?;
             }
         }
-        // Buckets and flows reference accounts/buckets by id; map them to the new ids.
+        // Debts, buckets and flows reference each other by id; map them to the new ids.
+        let mut debt_map = std::collections::HashMap::new();
+        for d in &data.debts {
+            let new_id =
+                self.save_debt(&Debt { id: 0, account_id: d.account_id.and_then(|a| id_map.get(&a).copied()), ..d.clone() })?;
+            debt_map.insert(d.id, new_id);
+        }
         let mut bucket_map = std::collections::HashMap::new();
         for b in &data.buckets {
+            let debt_id = match b.debt_id {
+                Some(old) => match debt_map.get(&old) {
+                    Some(&new) => Some(new),
+                    None => continue, // its debt is gone
+                },
+                None => None,
+            };
             if let Some(&acc) = id_map.get(&b.account_id) {
-                let new_id = self.save_bucket(&Bucket { id: 0, account_id: acc, ..b.clone() })?;
+                let new_id = self.save_bucket(&Bucket { id: 0, account_id: acc, debt_id, ..b.clone() })?;
                 bucket_map.insert(b.id, new_id);
             }
         }
@@ -745,12 +834,16 @@ impl Db {
         for g in &data.goals {
             self.save_goal(&Goal { id: 0, ..g.clone() })?;
         }
-        for d in &data.debts {
-            self.save_debt(&Debt { id: 0, account_id: d.account_id.and_then(|a| id_map.get(&a).copied()), ..d.clone() })?;
-        }
         self.save_settings(&data.settings)?;
-        Ok(())
+        self.sync_debt_buckets()
     }
+}
+
+/// The account that pays a debt: its chosen account, else the primary cash account.
+fn debt_account(data: &AppData, debt: &Debt) -> Option<i64> {
+    debt.account_id
+        .filter(|id| data.accounts.iter().any(|a| a.id == *id))
+        .or_else(|| data.primary_cash_account().map(|a| a.id))
 }
 
 /// A backup file containing all data as JSON.
@@ -921,6 +1014,73 @@ mod tests {
         assert_eq!(db.flows().unwrap().iter().find(|x| x.id == linked.id).unwrap().bucket_id, None);
         db.delete_account(bucket.account_id).unwrap();
         assert!(db.buckets().unwrap().iter().all(|b| b.account_id != bucket.account_id));
+    }
+
+    #[test]
+    fn debt_payment_buckets_follow_the_plan() {
+        let mut db = Db::open_in_memory().unwrap();
+        let checking = db
+            .save_account(&Account {
+                id: 0,
+                name: "Checking".into(),
+                kind: AccountKind::Checking,
+                balance: 3000.0,
+                annual_return_pct: 0.0,
+                monthly_contribution: 0.0,
+                contribution_from_cash: false,
+                employer_match_monthly: 0.0,
+                notes: String::new(),
+                purpose: String::new(),
+                minimum_balance: 0.0,
+            })
+            .unwrap();
+        let mk = |name: &str, balance, apr, min| Debt {
+            id: 0,
+            name: name.into(),
+            kind: DebtKind::CreditCard,
+            balance,
+            apr,
+            min_payment: min,
+            account_id: None,
+            notes: String::new(),
+        };
+        let visa = db.save_debt(&mk("Visa", 2000.0, 24.0, 60.0)).unwrap();
+        let store_card = db.save_debt(&mk("Store", 500.0, 12.0, 25.0)).unwrap();
+        db.add_debt_bucket(visa).unwrap();
+        db.add_debt_bucket(store_card).unwrap();
+        db.add_debt_bucket(visa).unwrap(); // no duplicate
+        let b = |db: &Db, id| db.buckets().unwrap().into_iter().find(|b| b.debt_id == Some(id)).unwrap();
+        assert_eq!(db.buckets().unwrap().len(), 2);
+        assert_eq!(b(&db, visa).account_id, checking);
+        assert_eq!(b(&db, visa).name, "Visa payment");
+        assert_eq!(b(&db, visa).balance, 60.0);
+
+        // Extra goes to the highest APR (Visa) → its bucket grows.
+        let mut s = db.settings().unwrap();
+        s.debt_extra_monthly = 200.0;
+        db.save_settings(&s).unwrap();
+        db.sync_debt_buckets().unwrap();
+        assert_eq!(b(&db, visa).balance, 260.0);
+        assert_eq!(b(&db, store_card).balance, 25.0);
+        // Snowball moves the extra to the smaller balance.
+        s.debt_strategy = Strategy::Snowball;
+        db.save_settings(&s).unwrap();
+        db.sync_debt_buckets().unwrap();
+        assert_eq!(b(&db, visa).balance, 60.0);
+        assert_eq!(b(&db, store_card).balance, 225.0);
+
+        // Restore keeps the link; deleting the debt removes its bucket.
+        let data = db.load().unwrap();
+        let mut other = Db::open_in_memory().unwrap();
+        other.replace_all(&data).unwrap();
+        let restored = other.load().unwrap();
+        let rb = restored.buckets.iter().find(|b| b.name == "Visa payment").unwrap();
+        assert_eq!(restored.debts.iter().find(|d| Some(d.id) == rb.debt_id).unwrap().name, "Visa");
+        db.delete_debt(visa).unwrap();
+        assert!(db.buckets().unwrap().iter().all(|b| b.debt_id != Some(visa)));
+        db.remove_debt_bucket(store_card).unwrap();
+        assert!(db.buckets().unwrap().is_empty());
+        assert_eq!(db.debts().unwrap().len(), 1);
     }
 
     #[test]

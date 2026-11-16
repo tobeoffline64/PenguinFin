@@ -14,6 +14,19 @@ loan, student loan, auto loan, medical bill, other.
 While you type, the form shows the interest charged this month and how long paying only the minimum
 would take. A warning appears if the minimum doesn't even cover the interest.
 
+## Payment buckets (automatic)
+
+With **Set aside payments in a bucket** on (the default for new debts), PenguinFin adds a
+*"Visa card payment"* bucket to the account that pays the debt. The bucket always holds that debt's
+**planned payment for this month** (its minimum, plus the extra when it's the debt being targeted) and
+updates itself whenever balances, the extra amount or the strategy change, and at the start of each month.
+
+- The money is reserved: savings goals and spendable cash don't count it.
+- In projections the bucket follows the plan and empties once the debt is paid off.
+- Delete the debt and its bucket goes too. Remove just the bucket (or turn the switch off) to stop
+  setting money aside. The payoff plan continues either way.
+- For debts added before this feature, use **Set aside payments in a bucket** on the debt.
+
 ## Your monthly budget
 
 The budget card starts from your take-home income and subtracts bills (rent, utilities, insurance…),
@@ -44,6 +57,9 @@ same until everything is paid.
 - A month-by-month **payment schedule** (✓ marks the month a debt is paid off).
 
 ## Everywhere else
+
+- The **Dashboard** overview chart shows a red **Debt** line and your debt-free date, and a **Debt payoff**
+  card below it shows what you owe, your monthly payment, total interest and each balance month by month.
 
 - **Net worth** subtracts what you owe (dashboard, accounts, projections).
 - **Projections** pay debts from their accounts each month according to your plan, and show a Debt line

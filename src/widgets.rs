@@ -286,7 +286,7 @@ pub fn LineChart(series: Vec<Series>, labels: Vec<String>, #[props(into)] curren
                     // Regular labels, plus the last one (skipping a regular label too close to it).
                     if (i % label_every == 0 && n - 1 - i >= label_every.div_ceil(2)) || i == n - 1 {
                         text {
-                            x: "{x(i)}", y: "{h - 8.0}", text_anchor: "middle",
+                            x: "{x(i)}", y: "{h - 8.0}", text_anchor: if i == n - 1 { "end" } else { "middle" },
                             font_size: "11", fill: "var(--muted-foreground)",
                             "{l}"
                         }
@@ -442,7 +442,7 @@ pub fn StackedChart(
                 for (i, l) in labels.iter().enumerate() {
                     // Regular labels, plus the last one (skipping a regular label too close to it).
                     if (i % label_every == 0 && n - 1 - i >= label_every.div_ceil(2)) || i == n - 1 {
-                        text { x: "{x(i)}", y: "{h - 8.0}", text_anchor: "middle", font_size: "11", fill: "var(--muted-foreground)", "{l}" }
+                        text { x: "{x(i)}", y: "{h - 8.0}", text_anchor: if i == n - 1 { "end" } else { "middle" }, font_size: "11", fill: "var(--muted-foreground)", "{l}" }
                     }
                 }
                 for (d, color) in areas.iter() {

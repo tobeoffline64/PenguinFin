@@ -60,7 +60,9 @@ pub fn DebtsPage() -> Element {
             .await
         }
     });
-    let plans_value = plans.read().clone();
+    // Right after a debt is added or removed the last plan is for the old list of debts;
+    // treat it as still loading until the new one is ready (indexes must line up).
+    let plans_value = plans.read().clone().filter(|p| p.chosen.payoff.len() == data.debts.len());
     let loading = plans_value.is_none();
 
     // Monthly budget: what's left after rent, utilities and other bills, expenses and savings.
@@ -217,7 +219,13 @@ pub fn DebtsPage() -> Element {
                                     sym: sym.clone(),
                                     pay_from: data.debts[idx].account_id.and_then(|a| data.account_name(a)).map(str::to_string)
                                         .unwrap_or_else(|| data.primary_cash_account().map(|a| a.name.clone()).unwrap_or_default()),
-                                    on_edit: move |d: Debt| { form.set(DebtForm::from_debt(&d)); generation += 1; },
+                                    set_aside: data.buckets.iter().find(|b| b.debt_id == Some(data.debts[idx].id))
+                                        .map(|b| (b.balance, data.account_name(b.account_id).unwrap_or("").to_string())),
+                                    on_edit: move |d: Debt| {
+                                        let has_bucket = store.data.read().buckets.iter().any(|b| b.debt_id == Some(d.id));
+                                        form.set(DebtForm::from_debt(&d, has_bucket));
+                                        generation += 1;
+                                    },
                                 }
                             }
                         }
@@ -285,6 +293,8 @@ fn DebtCard(
     loading: bool,
     selected: bool,
     is_target: bool,
+    /// (amount set aside now, account name) when the debt has a payment bucket.
+    set_aside: Option<(f64, String)>,
     sym: String,
     pay_from: String,
     on_edit: EventHandler<Debt>,
@@ -350,6 +360,22 @@ fn DebtCard(
                             Some(d) => rsx! { div { "Paid off {month_label(d)} · interest {money(p.minimums_only.interest_by_debt[index], &sym)}" } },
                             None => rsx! { div { class: "text-destructive", "Never paid off" } },
                         }
+                    }
+                }
+                div { class: "flex flex-wrap items-center gap-2 text-xs",
+                    match &set_aside {
+                        Some((amount, account)) => rsx! {
+                            span { class: "text-muted-foreground",
+                                "Set aside: ", b { class: "text-foreground", {money_cents(*amount, &sym)} }
+                                " this month in {account} › {debt.name} payment (follows your plan)" }
+                        },
+                        None if debt.balance > 0.0 => rsx! {
+                            Button { size: ButtonSize::Sm, variant: ButtonVariant::Outline,
+                                title: "Create a bucket in the paying account that holds this debt's planned payment",
+                                onclick: move |_| store.mutate("Payments now set aside in a bucket", |db| db.add_debt_bucket(id)),
+                                "Set aside payments in a bucket" }
+                        },
+                        None => rsx! {},
                     }
                 }
                 if debt.balance > 0.0 {
@@ -482,6 +508,8 @@ struct DebtForm {
     min_payment: String,
     account: String,
     notes: String,
+    /// Keep this debt's payment set aside in a bucket of the paying account.
+    set_aside: bool,
 }
 
 impl DebtForm {
@@ -495,9 +523,10 @@ impl DebtForm {
             min_payment: String::new(),
             account: String::new(),
             notes: String::new(),
+            set_aside: true,
         }
     }
-    fn from_debt(d: &Debt) -> Self {
+    fn from_debt(d: &Debt, has_bucket: bool) -> Self {
         DebtForm {
             id: d.id,
             name: d.name.clone(),
@@ -507,6 +536,7 @@ impl DebtForm {
             min_payment: num_str(d.min_payment),
             account: d.account_id.map(|a| a.to_string()).unwrap_or_default(),
             notes: d.notes.clone(),
+            set_aside: has_bucket,
         }
     }
     fn to_debt(&self) -> Result<Debt, String> {
@@ -547,6 +577,14 @@ fn DebtFormCard(form: Signal<DebtForm>, generation: Signal<u32>, sym: String) ->
         },
     )];
     account_options.extend(data.accounts.iter().map(|a| (a.id.to_string(), a.name.clone())));
+    let set_aside_hint = if f.name.trim().is_empty() {
+        "Adds a payment bucket to the paying account that always holds this debt's planned payment, so goals and spending won't use it.".to_string()
+    } else {
+        format!(
+            "Adds a \u{201c}{} payment\u{201d} bucket to the paying account that always holds this debt's planned payment, so goals and spending won't use it.",
+            f.name.trim()
+        )
+    };
     // Live preview from what's typed so far.
     let preview = f.to_debt().ok().filter(|d| d.balance > 0.0);
 
@@ -555,7 +593,16 @@ fn DebtFormCard(form: Signal<DebtForm>, generation: Signal<u32>, sym: String) ->
         match res {
             Ok(d) => {
                 error.set(None);
-                store.mutate(if d.id == 0 { "Debt added" } else { "Debt saved" }, |db| db.save_debt(&d).map(|_| ()));
+                let set_aside = form.read().set_aside;
+                let msg = match (d.id == 0, set_aside) {
+                    (true, true) => "Debt added, with a bucket for its payments",
+                    (true, false) => "Debt added",
+                    _ => "Debt saved",
+                };
+                store.mutate(msg, |db| {
+                    let id = db.save_debt(&d)?;
+                    if set_aside { db.add_debt_bucket(id) } else { db.remove_debt_bucket(id) }
+                });
                 form.set(DebtForm::new());
                 generation += 1;
             }
@@ -609,6 +656,14 @@ fn DebtFormCard(form: Signal<DebtForm>, generation: Signal<u32>, sym: String) ->
                             }
                         }
                     }
+                }
+                div { class: "flex items-start justify-between gap-3",
+                    div { class: "flex flex-col",
+                        span { class: "text-sm", "Set aside payments in a bucket" }
+                        span { class: "text-xs text-muted-foreground", "{set_aside_hint}" }
+                    }
+                    crate::ui::switch::Switch { checked: f.set_aside, aria_label: "Set aside payments in a bucket",
+                        onchange: move |v| form.write().set_aside = v }
                 }
                 Field { label: "Notes",
                     Input { value: f.notes.clone(), placeholder: "Optional", oninput: move |e: FormEvent| form.write().notes = e.value() }

@@ -436,7 +436,7 @@ fn source_options(data: &penguinfin::model::AppData, kind: FlowKind) -> Vec<(Str
     for a in &data.accounts {
         opts.push((format!("a:{}", a.id), a.name.clone()));
         if kind.is_outflow() {
-            for b in data.buckets_for(a.id) {
+            for b in data.buckets_for(a.id).filter(|b| b.debt_id.is_none()) {
                 opts.push((format!("b:{}", b.id), format!("{} › {}", a.name, b.name)));
             }
         }

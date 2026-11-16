@@ -168,6 +168,13 @@ pub fn project(data: &AppData, today: NaiveDate, years: u32) -> Projection {
     );
     let debt_accounts: Vec<Option<usize>> =
         data.debts.iter().map(|d| d.account_id.and_then(account_index).or(primary)).collect();
+    // Debt payment buckets: (bucket position, debt index). Each holds its debt's next
+    // planned payment, so it follows the plan and empties when the debt is paid off.
+    let debt_buckets: Vec<(usize, usize)> = buckets
+        .iter()
+        .enumerate()
+        .filter_map(|(k, (_, b))| b.debt_id.and_then(|id| data.debts.iter().position(|d| d.id == id)).map(|di| (k, di)))
+        .collect();
 
     let mut proj = Projection {
         account_ids: data.accounts.iter().map(|a| a.id).collect(),
@@ -231,6 +238,12 @@ pub fn project(data: &AppData, today: NaiveDate, years: u32) -> Projection {
 
         // Debt payments for this month.
         let step = debt_sim.step();
+        if !debt_buckets.is_empty() {
+            let next = debt_sim.clone().step();
+            for &(k, di) in &debt_buckets {
+                bucket_bal[k] = next.payments[di];
+            }
+        }
         for (k, pay) in step.payments.iter().enumerate() {
             match debt_accounts[k] {
                 Some(i) => balances[i] -= pay,
@@ -458,6 +471,7 @@ mod tests {
             monthly_add: 300.0,
             target: Some(1500.0),
             notes: String::new(),
+            debt_id: None,
         });
         data.buckets.push(Bucket {
             id: 11,
@@ -467,6 +481,7 @@ mod tests {
             monthly_add: 50.0,
             target: None,
             notes: String::new(),
+            debt_id: None,
         });
         let mut car = cf(FlowKind::Bill, 400.0, Frequency::Quarterly, d(2026, 3, 10));
         car.bucket_id = Some(11);
@@ -529,6 +544,40 @@ mod tests {
         let free = p.months.iter().position(|m| m.debt == 0.0).unwrap();
         assert_eq!(p.months[free].month, plan.debt_free.unwrap());
         assert_eq!(p.months[free + 1].debt_payments, 0.0);
+    }
+
+    #[test]
+    fn debt_buckets_hold_the_next_payment_until_paid_off() {
+        let mut data = AppData::default();
+        data.accounts.push(account(1, AccountKind::Checking, 2000.0, 0.0, 0.0, false));
+        data.flows.push(cf(FlowKind::Income, 1000.0, Frequency::Monthly, d(2026, 1, 1)));
+        data.debts.push(crate::debt::Debt {
+            id: 5,
+            name: "Card".into(),
+            kind: crate::debt::DebtKind::CreditCard,
+            balance: 250.0,
+            apr: 0.0,
+            min_payment: 100.0,
+            account_id: None,
+            notes: String::new(),
+        });
+        data.buckets.push(Bucket {
+            id: 9,
+            account_id: 1,
+            name: "Card payment".into(),
+            balance: 100.0,
+            monthly_add: 0.0,
+            target: None,
+            notes: String::new(),
+            debt_id: Some(5),
+        });
+        let p = project(&data, d(2026, 1, 1), 1);
+        // Payments: 100, 100, 50. The bucket holds the *next* payment.
+        assert_eq!(p.months[0].buckets[0], 100.0);
+        assert_eq!(p.months[1].buckets[0], 50.0);
+        assert_eq!(p.months[2].buckets[0], 0.0);
+        assert_eq!(p.months[5].buckets[0], 0.0);
+        assert_eq!(p.months[2].debt, 0.0);
     }
 
     #[test]

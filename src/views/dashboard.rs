@@ -68,6 +68,26 @@ pub fn Dashboard(on_nav: EventHandler<Page>) -> Element {
     let nw10 = proj.at_years(10.min(years)).map(|m| m.net_worth()).unwrap_or(0.0);
     let nw_end = proj.months.last().map(|m| m.net_worth()).unwrap_or(0.0);
 
+    // Overview series; a Debt line is added while you owe money.
+    let mut overview_series = vec![
+        Series { name: "Net worth".into(), color: "var(--chart-3)".into(), values: yearly.iter().map(|y| y.net_worth()).collect(), bold: true },
+        Series { name: "Retirement".into(), color: "var(--success)".into(), values: yearly.iter().map(|y| y.retirement).collect(), bold: false },
+        Series { name: "Investments".into(), color: "var(--warning)".into(), values: yearly.iter().map(|y| y.investments).collect(), bold: false },
+        Series { name: "Cash".into(), color: "var(--chart-1)".into(), values: yearly.iter().map(|y| y.cash).collect(), bold: false },
+    ];
+    if debt_total > 0.0 {
+        overview_series.push(Series {
+            name: "Debt".into(),
+            color: "var(--destructive)".into(),
+            values: yearly.iter().map(|y| y.debt).collect(),
+            bold: false,
+        });
+    }
+    // First projected month with nothing owed.
+    let debt_free = (debt_total > 0.0 && !loading)
+        .then(|| proj.months.iter().find(|m| m.debt <= 0.005).map(|m| m.month))
+        .flatten();
+
     let up = upcoming(&data, today, 30);
     let up_out: f64 = up.iter().filter(|u| u.kind.is_outflow()).map(|u| u.amount).sum();
     let up_in: f64 = up.iter().filter(|u| !u.kind.is_outflow()).map(|u| u.amount).sum();
@@ -114,7 +134,10 @@ pub fn Dashboard(on_nav: EventHandler<Page>) -> Element {
         Card {
             CardHeader {
                 CardTitle { "Projected net worth" }
-                CardDescription { "Year-end balances using your income, bills, expenses, contributions and expected returns." }
+                CardDescription {
+                    "Year-end balances using your income, bills, expenses, contributions, debt payments and expected returns."
+                    if let Some(d) = debt_free { " Debt-free in {d.format(\"%B %Y\")}." }
+                }
             }
             CardContent {
                 if loading {
@@ -123,15 +146,14 @@ pub fn Dashboard(on_nav: EventHandler<Page>) -> Element {
                 LineChart {
                     labels: labels.clone(),
                     currency: sym.clone(),
-                    series: vec![
-                        Series { name: "Net worth".into(), color: "var(--chart-3)".into(), values: yearly.iter().map(|y| y.net_worth()).collect(), bold: true },
-                        Series { name: "Retirement".into(), color: "var(--success)".into(), values: yearly.iter().map(|y| y.retirement).collect(), bold: false },
-                        Series { name: "Investments".into(), color: "var(--warning)".into(), values: yearly.iter().map(|y| y.investments).collect(), bold: false },
-                        Series { name: "Cash".into(), color: "var(--chart-1)".into(), values: yearly.iter().map(|y| y.cash).collect(), bold: false },
-                    ],
+                    series: overview_series.clone(),
                 }
                 }
             }
+        }
+
+        if !data.debts.is_empty() {
+            DebtOverview { debt_free, sym: sym.clone() }
         }
 
         div { class: "grid gap-6 @3xl:grid-cols-5",
@@ -202,6 +224,87 @@ pub fn PageHeader(#[props(into)] title: String, #[props(into, optional)] subtitl
                 }
             }
             {children}
+        }
+    }
+}
+
+/// Dashboard summary of the debt payoff plan: key numbers and each balance month by month.
+#[component]
+fn DebtOverview(debt_free: Option<chrono::NaiveDate>, sym: String) -> Element {
+    let store = use_store();
+    let data = store.data.read().clone();
+    let s = &data.settings;
+    let p = penguinfin::debt::plan(&data.debts, s.debt_strategy, s.debt_extra_monthly, true, today(), 600);
+    let monthly = data.debt_monthly_budget();
+    if p.months.is_empty() {
+        return rsx! {};
+    }
+    let n = p.months.len();
+    let stride = n.div_ceil(60).max(1);
+    let mut idx: Vec<usize> = (0..n).step_by(stride).collect();
+    if idx.last() != Some(&(n - 1)) {
+        idx.push(n - 1);
+    }
+    const COLORS: [&str; 6] = ["var(--destructive)", "var(--warning)", "var(--chart-3)", "var(--chart-5)", "var(--info)", "var(--success)"];
+    let layers: Vec<Series> = p
+        .order
+        .iter()
+        .rev()
+        .enumerate()
+        .map(|(k, &i)| Series {
+            name: data.debts[i].name.clone(),
+            color: COLORS[k % COLORS.len()].into(),
+            values: idx.iter().map(|&m| p.months[m].balances[i]).collect(),
+            bold: false,
+        })
+        .collect();
+    let total = Series {
+        name: "Total owed".into(),
+        color: "var(--foreground)".into(),
+        values: idx.iter().map(|&m| p.months[m].balances.iter().sum()).collect(),
+        bold: true,
+    };
+    let labels: Vec<String> = idx.iter().map(|&m| p.months[m].month.format("%b %y").to_string()).collect();
+    let strategy = match s.debt_strategy {
+        penguinfin::debt::Strategy::Avalanche => "avalanche",
+        penguinfin::debt::Strategy::Snowball => "snowball",
+    };
+    rsx! {
+        Card {
+            CardHeader {
+                CardTitle { "Debt payoff" }
+                CardDescription {
+                    match debt_free.or(p.debt_free) {
+                        Some(d) => format!(
+                            "Paying {} a month ({strategy}), you're debt-free in {} with {} of interest.",
+                            money(monthly, &sym), d.format("%B %Y"), money(p.total_interest, &sym)
+                        ),
+                        None => format!("At {} a month the debt isn't paid off within 50 years. See Debt payoff.", money(monthly, &sym)),
+                    }
+                }
+            }
+            CardContent { class: "flex flex-col gap-4",
+                div { class: "grid grid-cols-2 gap-4 @3xl:grid-cols-4",
+                    div { class: "flex flex-col",
+                        span { class: "text-xs text-muted-foreground", "Owed now" }
+                        span { class: "text-lg font-semibold tabular-nums text-destructive", {money(data.total_debt(), &sym)} }
+                    }
+                    div { class: "flex flex-col",
+                        span { class: "text-xs text-muted-foreground", "Paid each month" }
+                        span { class: "text-lg font-semibold tabular-nums", {money(monthly, &sym)} }
+                    }
+                    div { class: "flex flex-col",
+                        span { class: "text-xs text-muted-foreground", "Debt-free" }
+                        span { class: "text-lg font-semibold tabular-nums text-success",
+                            {debt_free.or(p.debt_free).map(|d| d.format("%b %Y").to_string()).unwrap_or_else(|| "—".into())} }
+                    }
+                    div { class: "flex flex-col",
+                        span { class: "text-xs text-muted-foreground", "Interest to pay" }
+                        span { class: "text-lg font-semibold tabular-nums", {money(p.total_interest, &sym)} }
+                    }
+                }
+                StackedChart { layers, total, reference: None, labels, currency: sym.clone() }
+            }
         }
     }
 }

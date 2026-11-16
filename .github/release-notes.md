@@ -34,6 +34,13 @@ curl -fL -o /tmp/penguinfin.flatpak https://github.com/tobeoffline64/penguinfin/
 flatpak install --user -y --reinstall /tmp/penguinfin.flatpak
 ```
 
+## New in 1.8.0
+- **Debt payments are set aside automatically.** Adding a debt now creates a "… payment" bucket in the account that pays it (switch it off on the form if you don't want one; existing debts get a "Set aside payments in a bucket" button). The bucket always holds that debt's planned payment for the month (minimum, plus the extra when it's the current target) and updates by itself when balances, the extra amount or the strategy change. Bucket money is reserved, so savings goals won't spend it.
+- In projections each debt bucket follows the payoff plan and empties when the debt is paid off; the Accounts & buckets chart shows it.
+- Accounts list their planned debt payments under "Pays".
+- **Debt on the dashboard.** The overview chart shows a Debt line and your debt-free date, and a new Debt payoff card summarises what you owe, your monthly payment, interest, and each balance month by month.
+- **Fix:** the app could crash right after adding or removing a debt on the Debt payoff page.
+
 ## New in 1.7.0
 - **Debt payoff** (new page). Add credit cards and loans with their balance, APR and minimum payment to see the interest you pay each month, how long minimum payments would take, and the payment needed to be debt-free in 1, 2 or 3 years.
 - **A payoff plan that still pays rent and utilities.** Your take-home pay minus bills, expenses and savings shows what's actually available; choose an extra monthly amount (with a warning if it's more than you have) and **avalanche** (highest rate first) or **snowball** (smallest balance first). Paid-off debts roll their payment into the next. You get a debt-free date, interest saved vs. minimums only, a payoff chart and a month-by-month schedule.
