@@ -1,6 +1,6 @@
 [package]
 name = "penguinfin"
-version = "1.6.0"
+version = "1.7.0"
 edition = "2024"
 description = "Offline personal finance planner: recurring expenses, bills, income and investment projections"
 license = "MIT"

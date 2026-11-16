@@ -15,6 +15,7 @@
       <li>Checking, savings, brokerage, 401(k), IRA and HSA accounts with holdings</li>
       <li>Multi-decade projections with raises, inflation and expected returns</li>
       <li>Savings goals that respect each account's minimum balance</li>
+      <li>Debt payoff plans (avalanche or snowball) that keep your bills covered</li>
       <li>What-if scenarios and JSON backups</li>
       <li>Optional economic data from FRED (inflation, interest rates, market returns)</li>
     </ul>
@@ -23,6 +24,11 @@
   <developer id="io.github.tobeoffline64"><name>tobeoffline64</name></developer>
   <content_rating type="oars-1.1"/>
   <releases>
+    <release version="1.7.0" date="2026-11-16">
+      <description>
+        <p>Debt payoff: credit cards and loans with interest, and an avalanche or snowball plan that still covers your bills.</p>
+      </description>
+    </release>
     <release version="1.6.0" date="2026-11-15">
       <description>
         <p>Windows build, app icon on the window, and a richer sample household.</p>

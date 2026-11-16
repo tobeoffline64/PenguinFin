@@ -34,6 +34,11 @@ curl -fL -o /tmp/penguinfin.flatpak https://github.com/tobeoffline64/penguinfin/
 flatpak install --user -y --reinstall /tmp/penguinfin.flatpak
 ```
 
+## New in 1.7.0
+- **Debt payoff** (new page). Add credit cards and loans with their balance, APR and minimum payment to see the interest you pay each month, how long minimum payments would take, and the payment needed to be debt-free in 1, 2 or 3 years.
+- **A payoff plan that still pays rent and utilities.** Your take-home pay minus bills, expenses and savings shows what's actually available; choose an extra monthly amount (with a warning if it's more than you have) and **avalanche** (highest rate first) or **snowball** (smallest balance first). Paid-off debts roll their payment into the next. You get a debt-free date, interest saved vs. minimums only, a payoff chart and a month-by-month schedule.
+- Debt now counts against net worth, is paid from its account in projections, and the dashboard's "Left over" includes your debt plan.
+
 ## New in 1.6.0
 - **Windows build**: a portable `PenguinFin-1.6.0-windows-x64.zip` is now attached to every release. Data is stored in `%APPDATA%\PenguinFin`, backups go to your Downloads folder.
 - The penguin icon now shows on the window and taskbar (and on the Windows `.exe`).

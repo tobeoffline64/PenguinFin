@@ -1,4 +1,5 @@
 pub mod accounts;
+pub mod debts;
 pub mod dashboard;
 pub mod flows;
 pub mod goals;

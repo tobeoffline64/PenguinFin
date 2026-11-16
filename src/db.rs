@@ -1,5 +1,6 @@
 //! Local SQLite storage. Everything lives in a single file in the user's data dir.
 
+use crate::debt::{Debt, DebtKind, Strategy};
 use crate::fred::{FredConfig, Indicator, InflationSource, MarketData, MarketValue};
 use crate::model::*;
 use chrono::NaiveDate;
@@ -42,7 +43,7 @@ pub fn default_db_path() -> PathBuf {
     data_dir().join("penguinfin.db")
 }
 
-const SCHEMA_VERSION: i64 = 4;
+const SCHEMA_VERSION: i64 = 5;
 
 pub struct Db {
     conn: Connection,
@@ -183,7 +184,26 @@ impl Db {
                 )
                 .map_err(e)?;
         }
-        const { assert!(SCHEMA_VERSION == 4, "add a migration step above") };
+        if version < 5 {
+            self.conn
+                .execute_batch(
+                    "BEGIN;
+                CREATE TABLE IF NOT EXISTS debts (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    name TEXT NOT NULL,
+                    kind TEXT NOT NULL,
+                    balance REAL NOT NULL,
+                    apr REAL NOT NULL DEFAULT 0,
+                    min_payment REAL NOT NULL DEFAULT 0,
+                    account_id INTEGER REFERENCES accounts(id) ON DELETE SET NULL,
+                    notes TEXT NOT NULL DEFAULT ''
+                );
+                PRAGMA user_version = 5;
+                COMMIT;",
+                )
+                .map_err(e)?;
+        }
+        const { assert!(SCHEMA_VERSION == 5, "add a migration step above") };
         Ok(())
     }
 
@@ -196,6 +216,7 @@ impl Db {
             holdings: self.holdings()?,
             goals: self.goals()?,
             buckets: self.buckets()?,
+            debts: self.debts()?,
             settings: self.settings()?,
             fred: self.fred_config()?,
             market: self.market_data()?,
@@ -361,6 +382,8 @@ impl Db {
             dark_mode: self.setting("dark_mode")?.map(|v| v == "1").unwrap_or(d.dark_mode),
             ui_scale: self.setting("ui_scale")?.and_then(|v| UiScale::from_key(&v)).unwrap_or(d.ui_scale),
             natural_scroll: self.setting("natural_scroll")?.map(|v| v == "1").unwrap_or(d.natural_scroll),
+            debt_strategy: self.setting("debt_strategy")?.and_then(|v| Strategy::from_key(&v)).unwrap_or(d.debt_strategy),
+            debt_extra_monthly: self.setting("debt_extra_monthly")?.and_then(|v| v.parse().ok()).unwrap_or(d.debt_extra_monthly),
         })
     }
 
@@ -502,6 +525,51 @@ impl Db {
         Ok(())
     }
 
+    pub fn debts(&self) -> Result<Vec<Debt>> {
+        let mut st = self.conn.prepare("SELECT * FROM debts ORDER BY id").map_err(e)?;
+        let rows = st
+            .query_map([], |r| {
+                let kind: String = r.get("kind")?;
+                Ok(Debt {
+                    id: r.get("id")?,
+                    name: r.get("name")?,
+                    kind: DebtKind::from_key(&kind).unwrap_or(DebtKind::Other),
+                    balance: r.get("balance")?,
+                    apr: r.get("apr")?,
+                    min_payment: r.get("min_payment")?,
+                    account_id: r.get("account_id")?,
+                    notes: r.get("notes")?,
+                })
+            })
+            .map_err(e)?;
+        rows.collect::<rusqlite::Result<Vec<_>>>().map_err(e)
+    }
+
+    pub fn save_debt(&self, d: &Debt) -> Result<i64> {
+        if d.id == 0 {
+            self.conn
+                .execute(
+                    "INSERT INTO debts (name, kind, balance, apr, min_payment, account_id, notes) VALUES (?1,?2,?3,?4,?5,?6,?7)",
+                    params![d.name, d.kind.key(), d.balance, d.apr, d.min_payment, d.account_id, d.notes],
+                )
+                .map_err(e)?;
+            Ok(self.conn.last_insert_rowid())
+        } else {
+            self.conn
+                .execute(
+                    "UPDATE debts SET name=?1, kind=?2, balance=?3, apr=?4, min_payment=?5, account_id=?6, notes=?7 WHERE id=?8",
+                    params![d.name, d.kind.key(), d.balance, d.apr, d.min_payment, d.account_id, d.notes, d.id],
+                )
+                .map_err(e)?;
+            Ok(d.id)
+        }
+    }
+
+    pub fn delete_debt(&self, id: i64) -> Result<()> {
+        self.conn.execute("DELETE FROM debts WHERE id=?1", [id]).map_err(e)?;
+        Ok(())
+    }
+
     pub fn buckets(&self) -> Result<Vec<Bucket>> {
         let mut st = self.conn.prepare("SELECT * FROM buckets ORDER BY account_id, id").map_err(e)?;
         let rows = st
@@ -624,6 +692,8 @@ impl Db {
             ("dark_mode", if s.dark_mode { "1".into() } else { "0".into() }),
             ("ui_scale", s.ui_scale.key().to_string()),
             ("natural_scroll", if s.natural_scroll { "1".into() } else { "0".into() }),
+            ("debt_strategy", s.debt_strategy.key().to_string()),
+            ("debt_extra_monthly", s.debt_extra_monthly.to_string()),
         ];
         for (k, v) in pairs {
             self.conn
@@ -641,7 +711,7 @@ impl Db {
     pub fn replace_all(&mut self, data: &AppData) -> Result<()> {
         let tx = self.conn.transaction().map_err(e)?;
         tx.execute_batch(
-            "DELETE FROM cash_flows; DELETE FROM buckets; DELETE FROM holdings; DELETE FROM accounts; DELETE FROM goals;",
+            "DELETE FROM cash_flows; DELETE FROM buckets; DELETE FROM debts; DELETE FROM holdings; DELETE FROM accounts; DELETE FROM goals;",
         )
         .map_err(e)?;
         tx.commit().map_err(e)?;
@@ -674,6 +744,9 @@ impl Db {
         }
         for g in &data.goals {
             self.save_goal(&Goal { id: 0, ..g.clone() })?;
+        }
+        for d in &data.debts {
+            self.save_debt(&Debt { id: 0, account_id: d.account_id.and_then(|a| id_map.get(&a).copied()), ..d.clone() })?;
         }
         self.save_settings(&data.settings)?;
         Ok(())
@@ -711,6 +784,8 @@ mod tests {
         assert_eq!(loaded.flows.len(), data.flows.len());
         assert_eq!(loaded.accounts.len(), data.accounts.len());
         assert_eq!(loaded.holdings.len(), data.holdings.len());
+        assert_eq!(loaded.debts.len(), data.debts.len());
+        assert_eq!(loaded.debts[0].apr, data.debts[0].apr);
         assert_eq!(loaded.settings, data.settings);
         assert!((loaded.net_worth() - data.net_worth()).abs() < 1e-6);
 

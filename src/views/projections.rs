@@ -63,6 +63,11 @@ pub fn ProjectionsPage() -> Element {
         Series { name: "Cash".into(), color: "var(--chart-1)".into(),
             values: yearly.iter().map(|y| adj(y.cash, y.inflation_factor)).collect(), bold: false },
     ];
+    let has_debt = !data.debts.is_empty();
+    if has_debt {
+        series.push(Series { name: "Debt".into(), color: "var(--destructive)".into(),
+            values: yearly.iter().map(|y| adj(y.debt, y.inflation_factor)).collect(), bold: false });
+    }
     if what_if {
         series.push(Series { name: "Net worth (current plan)".into(), color: "var(--muted-foreground)".into(),
             values: base_yearly.iter().map(|y| adj(y.net_worth(), y.inflation_factor)).collect(), bold: false });
@@ -199,6 +204,7 @@ pub fn ProjectionsPage() -> Element {
                                 TableHead { class: "text-right", "Cash" }
                                 TableHead { class: "text-right", "Investments" }
                                 TableHead { class: "text-right", "Retirement" }
+                                if has_debt { TableHead { class: "text-right", "Debt" } }
                                 TableHead { class: "text-right", "Net worth" }
                             }
                         }
@@ -213,6 +219,9 @@ pub fn ProjectionsPage() -> Element {
                                         {money(adj(y.cash, y.inflation_factor), &sym)} }
                                     TableCell { class: "text-right tabular-nums", {money(adj(y.investments, y.inflation_factor), &sym)} }
                                     TableCell { class: "text-right tabular-nums", {money(adj(y.retirement, y.inflation_factor), &sym)} }
+                                    if has_debt {
+                                        TableCell { class: "text-right tabular-nums text-destructive", {money(adj(y.debt, y.inflation_factor), &sym)} }
+                                    }
                                     TableCell { class: "text-right font-medium tabular-nums", {money(adj(y.net_worth(), y.inflation_factor), &sym)} }
                                 }
                             }

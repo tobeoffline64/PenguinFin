@@ -17,6 +17,10 @@ pub struct MonthPoint {
     pub retirement: f64,
     /// Inflation discount factor for this month (divide by it to get today's dollars).
     pub inflation_factor: f64,
+    /// Total owed on debts at the end of the month.
+    pub debt: f64,
+    /// Paid toward debts this month (minimums + extra).
+    pub debt_payments: f64,
     /// End-of-month balance of each account, in `Projection::account_ids` order.
     pub accounts: Vec<f64>,
     /// End-of-month balance of each bucket, in `Projection::bucket_ids` order.
@@ -25,10 +29,10 @@ pub struct MonthPoint {
 
 impl MonthPoint {
     pub fn net_cashflow(&self) -> f64 {
-        self.income - self.expenses - self.bills - self.cash_contributions
+        self.income - self.expenses - self.bills - self.cash_contributions - self.debt_payments
     }
     pub fn net_worth(&self) -> f64 {
-        self.cash + self.investments + self.retirement
+        self.cash + self.investments + self.retirement - self.debt
     }
 }
 
@@ -42,11 +46,15 @@ pub struct YearSummary {
     pub investments: f64,
     pub retirement: f64,
     pub inflation_factor: f64,
+    /// Owed at year end.
+    pub debt: f64,
+    /// Paid toward debt during the year.
+    pub debt_payments: f64,
 }
 
 impl YearSummary {
     pub fn net_worth(&self) -> f64 {
-        self.cash + self.investments + self.retirement
+        self.cash + self.investments + self.retirement - self.debt
     }
 }
 
@@ -76,6 +84,8 @@ impl Projection {
                     investments: 0.0,
                     retirement: 0.0,
                     inflation_factor: 1.0,
+                    debt: 0.0,
+                    debt_payments: 0.0,
                 });
             }
             let s = out.last_mut().expect("just pushed");
@@ -87,6 +97,8 @@ impl Projection {
             s.investments = m.investments;
             s.retirement = m.retirement;
             s.inflation_factor = m.inflation_factor;
+            s.debt = m.debt;
+            s.debt_payments += m.debt_payments;
         }
         out
     }
@@ -146,6 +158,16 @@ pub fn project(data: &AppData, today: NaiveDate, years: u32) -> Projection {
             (account.or(primary), bucket)
         })
         .collect();
+
+    // Debts follow the payoff plan from Settings (same simulator as the Debt payoff page).
+    let mut debt_sim = crate::debt::Simulator::new(
+        &data.debts,
+        data.settings.debt_strategy,
+        data.settings.debt_extra_monthly,
+        true,
+    );
+    let debt_accounts: Vec<Option<usize>> =
+        data.debts.iter().map(|d| d.account_id.and_then(account_index).or(primary)).collect();
 
     let mut proj = Projection {
         account_ids: data.accounts.iter().map(|a| a.id).collect(),
@@ -207,6 +229,15 @@ pub fn project(data: &AppData, today: NaiveDate, years: u32) -> Projection {
             }
         }
 
+        // Debt payments for this month.
+        let step = debt_sim.step();
+        for (k, pay) in step.payments.iter().enumerate() {
+            match debt_accounts[k] {
+                Some(i) => balances[i] -= pay,
+                None => virtual_cash -= pay,
+            }
+        }
+
         infl_factor *= 1.0 + infl_m;
         let mut pt = MonthPoint {
             month,
@@ -218,6 +249,8 @@ pub fn project(data: &AppData, today: NaiveDate, years: u32) -> Projection {
             investments: 0.0,
             retirement: 0.0,
             inflation_factor: infl_factor,
+            debt: debt_sim.total_balance(),
+            debt_payments: step.total_payment(),
             accounts: balances.clone(),
             buckets: bucket_bal.clone(),
         };
@@ -451,6 +484,51 @@ mod tests {
         // The bill comes out of savings, not checking; earmarks don't change the account total.
         assert_eq!(p.months[2].accounts[0], 1000.0);
         assert_eq!(p.months[2].accounts[1], 2600.0);
+    }
+
+    #[test]
+    fn debts_reduce_net_worth_and_are_paid_from_their_account() {
+        let mut data = AppData::default();
+        data.accounts.push(account(1, AccountKind::Checking, 1000.0, 0.0, 0.0, false));
+        data.accounts.push(account(2, AccountKind::Savings, 5000.0, 0.0, 0.0, false));
+        data.flows.push(cf(FlowKind::Income, 2000.0, Frequency::Monthly, d(2026, 1, 1)));
+        data.debts.push(crate::debt::Debt {
+            id: 1,
+            name: "Card".into(),
+            kind: crate::debt::DebtKind::CreditCard,
+            balance: 1000.0,
+            apr: 12.0,
+            min_payment: 100.0,
+            account_id: None,
+            notes: String::new(),
+        });
+        data.debts.push(crate::debt::Debt {
+            id: 2,
+            name: "Medical".into(),
+            kind: crate::debt::DebtKind::Medical,
+            balance: 300.0,
+            apr: 0.0,
+            min_payment: 50.0,
+            account_id: Some(2),
+            notes: String::new(),
+        });
+        data.settings.debt_extra_monthly = 100.0;
+        assert_eq!(data.total_debt(), 1300.0);
+        assert_eq!(data.net_worth(), 6000.0 - 1300.0);
+        assert_eq!(data.debt_monthly_budget(), 250.0);
+        let p = project(&data, d(2026, 1, 1), 2);
+        let m0 = &p.months[0];
+        // Avalanche: card (12%) gets the extra. Card: 1000+10-200 = 810; medical: 300-50 = 250.
+        assert!((m0.debt - 1060.0).abs() < 1e-9, "{}", m0.debt);
+        assert!((m0.debt_payments - 250.0).abs() < 1e-9);
+        assert!((m0.accounts[0] - (1000.0 + 2000.0 - 200.0)).abs() < 1e-9);
+        assert!((m0.accounts[1] - (5000.0 - 50.0)).abs() < 1e-9);
+        assert!((m0.net_worth() - (m0.cash - m0.debt)).abs() < 1e-9);
+        // Matches the stand-alone plan, and is paid off eventually.
+        let plan = crate::debt::plan(&data.debts, data.settings.debt_strategy, 100.0, true, d(2026, 1, 1), 600);
+        let free = p.months.iter().position(|m| m.debt == 0.0).unwrap();
+        assert_eq!(p.months[free].month, plan.debt_free.unwrap());
+        assert_eq!(p.months[free + 1].debt_payments, 0.0);
     }
 
     #[test]

@@ -108,5 +108,22 @@ pub fn sample_data(today: NaiveDate) -> AppData {
         goal(2, "Family vacation", 4500.0, 2, add_months_clamped(today, 8, 1)),
         goal(3, "Kitchen remodel", 15000.0, 3, None),
     ];
-    AppData { flows, accounts, holdings, buckets, goals, settings: Settings::default(), ..Default::default() }
+    use crate::debt::{Debt, DebtKind};
+    let debt = |id, name: &str, kind, balance, apr, min_payment| Debt {
+        id,
+        name: name.into(),
+        kind,
+        balance,
+        apr,
+        min_payment,
+        account_id: None,
+        notes: String::new(),
+    };
+    let debts = vec![
+        debt(1, "Visa card", DebtKind::CreditCard, 3200.0, 24.99, 95.0),
+        debt(2, "Store card", DebtKind::CreditCard, 650.0, 29.99, 35.0),
+        debt(3, "Student loan", DebtKind::StudentLoan, 14000.0, 5.5, 160.0),
+    ];
+    let settings = Settings { debt_extra_monthly: 250.0, ..Settings::default() };
+    AppData { flows, accounts, holdings, buckets, goals, debts, settings, ..Default::default() }
 }

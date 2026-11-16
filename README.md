@@ -22,6 +22,8 @@ Built in **Rust** with **[Dioxus](https://dioxuslabs.com) desktop** and componen
 | **Accounts**: purposes, minimum balances, buckets, holdings | **Accounts & buckets chart**: an account split by bucket over time |
 | ![Projections](docs/screenshots/projections.png) | ![Economic data](docs/screenshots/economic-data.png) |
 | **Projections**: net worth over decades, what-if scenarios | **Economic data**: optional live inflation and rates from FRED |
+| ![Debt payoff](docs/screenshots/debt-payoff.png) | ![Payoff plan](docs/screenshots/debt-payoff-plan.png) |
+| **Debt payoff**: budget after rent and bills, avalanche or snowball | **Payoff plan**: balances over time, per-debt payoff, schedule |
 | ![Bills](docs/screenshots/bills.png) | ![Dark mode](docs/screenshots/dark-dashboard.png) |
 | **Bills, income & expenses** with where each is paid from | **Dark mode** |
 
@@ -35,6 +37,10 @@ Built in **Rust** with **[Dioxus](https://dioxuslabs.com) desktop** and componen
 - **Accounts & investments**: checking, savings, brokerage, 401(k)/403(b), Traditional/Roth IRA, HSA,
   pension, other. Each account has an expected return/APY, a monthly contribution (from checking or via
   payroll), employer match, and optional **holdings** (symbol × shares × price).
+- **Debt payoff**: credit cards and loans with balance, APR and minimum payment. Shows interest per month,
+  minimum-only payoff, and payments needed to be debt-free in 1–3 years. A payoff plan (avalanche or snowball,
+  with rollover) uses only what's left after rent, bills and expenses, with a chart and a monthly schedule.
+  Debt counts against net worth and is paid in projections.
 - **Savings goals**: things to buy with a price, optional "want it by" date and priority. Shows when each becomes
   affordable from checking + savings while keeping every account's minimum balance, even through later bills in the
   projection; how much more to save per month to hit a date; and spendable cash over time after the purchases.

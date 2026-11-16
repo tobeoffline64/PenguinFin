@@ -11,7 +11,8 @@ When PenguinFin starts for the first time the dashboard is empty. You can:
 2. **Income**: your take-home pay (after tax and payroll deductions) and other income.
 3. **Bills**: rent or mortgage, utilities, insurance, loans.
 4. **Recurring expenses**: groceries, gas, subscriptions, dining out.
-5. Optionally, **Savings goals** for things you want to buy, and buckets such as *Rainy day money*.
+5. **Debt payoff**: credit cards and loans, with a plan to pay them off. See [Debt payoff](Debt-Payoff).
+6. Optionally, **Savings goals** for things you want to buy, and buckets such as *Rainy day money*.
 
 The **Dashboard** then shows your net worth, monthly cash flow, savings rate, the next 30 days of
 payments and a projection of your net worth.

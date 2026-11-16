@@ -4,6 +4,7 @@
 - [Installation](Installation)
 - [Getting started](Getting-Started)
 - [Income, bills & expenses](Income-Bills-and-Expenses)
+- [Debt payoff](Debt-Payoff)
 - [Accounts & buckets](Accounts-and-Buckets)
 - [Savings goals](Savings-Goals)
 - [Projections](Projections)

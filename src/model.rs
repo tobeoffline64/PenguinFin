@@ -478,6 +478,10 @@ pub struct Settings {
     pub ui_scale: UiScale,
     /// Reverse the scroll direction (content follows the fingers, like a phone).
     pub natural_scroll: bool,
+    /// Debt payoff plan: which debt gets extra money first.
+    pub debt_strategy: crate::debt::Strategy,
+    /// Paid toward debt each month on top of the minimums.
+    pub debt_extra_monthly: f64,
 }
 
 impl Default for Settings {
@@ -489,6 +493,8 @@ impl Default for Settings {
             dark_mode: false,
             ui_scale: UiScale::Auto,
             natural_scroll: false,
+            debt_strategy: crate::debt::Strategy::Avalanche,
+            debt_extra_monthly: 0.0,
         }
     }
 }
@@ -512,6 +518,8 @@ pub struct AppData {
     pub goals: Vec<Goal>,
     #[serde(default)]
     pub buckets: Vec<Bucket>,
+    #[serde(default)]
+    pub debts: Vec<crate::debt::Debt>,
     pub settings: Settings,
     /// FRED settings (includes the API key, so never written to backups).
     #[serde(skip)]
@@ -539,8 +547,22 @@ impl AppData {
             .sum()
     }
 
+    /// Everything you own minus what you owe.
     pub fn net_worth(&self) -> f64 {
-        self.accounts.iter().map(|a| self.account_value(a)).sum()
+        self.accounts.iter().map(|a| self.account_value(a)).sum::<f64>() - self.total_debt()
+    }
+
+    pub fn total_debt(&self) -> f64 {
+        self.debts.iter().map(|d| d.balance.max(0.0)).sum()
+    }
+
+    /// What the debt plan pays each month while debt remains: all minimums plus the extra.
+    pub fn debt_monthly_budget(&self) -> f64 {
+        if self.total_debt() <= 0.0 {
+            return 0.0;
+        }
+        self.debts.iter().filter(|d| d.balance > 0.0).map(|d| d.min_payment.max(0.0)).sum::<f64>()
+            + self.settings.debt_extra_monthly.max(0.0)
     }
 
     pub fn monthly_total(&self, pred: impl Fn(FlowKind) -> bool, today: NaiveDate) -> f64 {

@@ -53,7 +53,9 @@ pub fn Dashboard(on_nav: EventHandler<Page>) -> Element {
     let payroll_contrib: f64 =
         data.accounts.iter().filter(|a| !a.contribution_from_cash).map(|a| a.monthly_contribution).sum();
     let match_total: f64 = data.accounts.iter().map(|a| a.employer_match_monthly).sum();
-    let leftover = income - bills - expenses - cash_contrib;
+    let debt_plan = data.debt_monthly_budget();
+    let debt_total = data.total_debt();
+    let leftover = income - bills - expenses - cash_contrib - debt_plan;
     let saved = cash_contrib + leftover.max(0.0);
     let savings_rate = if income > 0.0 { saved / income * 100.0 } else { 0.0 };
 
@@ -87,16 +89,21 @@ pub fn Dashboard(on_nav: EventHandler<Page>) -> Element {
 
         div { class: "grid grid-cols-2 gap-4 @3xl:grid-cols-4",
             Stat { label: "Net worth", value: money(data.net_worth(), &sym),
-                sub: format!("Cash {} · Invest {} · Retire {}",
+                sub: format!("Cash {} · Invest {} · Retire {}{}",
                     money_short(data.group_total(AccountGroup::Cash), &sym),
                     money_short(data.group_total(AccountGroup::Investments), &sym),
-                    money_short(data.group_total(AccountGroup::Retirement), &sym)) }
+                    money_short(data.group_total(AccountGroup::Retirement), &sym),
+                    if debt_total > 0.0 { format!(" · Debt −{}", money_short(debt_total, &sym)) } else { String::new() }) }
             Stat { label: "Monthly income", value: money(income, &sym), sub: "Average take-home per month" }
             Stat { label: "Bills + expenses", value: money(bills + expenses, &sym),
                 sub: format!("Bills {} · Expenses {}", money(bills, &sym), money(expenses, &sym)) }
             Stat { label: "Left over / month", value: money(leftover, &sym),
                 tone: if leftover >= 0.0 { "good" } else { "bad" },
-                sub: format!("After {} moved to savings/investing", money(cash_contrib, &sym)) }
+                sub: if debt_plan > 0.0 {
+                    format!("After {} to savings and {} to debt", money(cash_contrib, &sym), money(debt_plan, &sym))
+                } else {
+                    format!("After {} moved to savings/investing", money(cash_contrib, &sym))
+                } }
             Stat { label: "Savings rate", value: format!("{savings_rate:.0}%"), sub: "Contributions + leftover cash, as % of income" }
             Stat { label: "Paycheck + employer", value: money(payroll_contrib + match_total, &sym), sub: "Monthly into retirement from payroll & match" }
             Stat { label: format!("Net worth in {} yrs", 10.min(years)), value: money(nw10, &sym), sub: "Projected, nominal dollars", loading }
