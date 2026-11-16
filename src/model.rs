@@ -524,6 +524,9 @@ pub struct AppData {
     pub buckets: Vec<Bucket>,
     #[serde(default)]
     pub debts: Vec<crate::debt::Debt>,
+    /// One-time debt payments, logged or planned.
+    #[serde(default)]
+    pub debt_payments: Vec<crate::debt::DebtPayment>,
     pub settings: Settings,
     /// FRED settings (includes the API key, so never written to backups).
     #[serde(skip)]

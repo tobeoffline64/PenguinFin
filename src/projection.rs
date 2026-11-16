@@ -168,6 +168,17 @@ pub fn project(data: &AppData, today: NaiveDate, years: u32) -> Projection {
     );
     let debt_accounts: Vec<Option<usize>> =
         data.debts.iter().map(|d| d.account_id.and_then(account_index).or(primary)).collect();
+    // Planned one-time debt payments: (month index, debt index, amount, paying account).
+    let lumps: Vec<(u32, usize, f64, Option<usize>)> = crate::debt::planned_lumps(&data.debts, &data.debt_payments, today)
+        .into_iter()
+        .zip(data.debt_payments.iter().filter(|p| {
+            !p.logged && p.amount > 0.0 && data.debts.iter().any(|d| d.id == p.debt_id) && {
+                let first = today.with_day(1).unwrap_or(today);
+                p.date >= first
+            }
+        }))
+        .map(|((m, (di, amount)), p)| (m, di, amount, p.account_id.and_then(account_index).or(debt_accounts[di])))
+        .collect();
     // Debt payment buckets: (bucket position, debt index). Each holds its debt's next
     // planned payment, so it follows the plan and empties when the debt is paid off.
     let debt_buckets: Vec<(usize, usize)> = buckets
@@ -236,8 +247,9 @@ pub fn project(data: &AppData, today: NaiveDate, years: u32) -> Projection {
             }
         }
 
-        // Debt payments for this month.
-        let step = debt_sim.step();
+        // Debt payments for this month, including planned one-time payments.
+        let month_lumps: Vec<&(u32, usize, f64, Option<usize>)> = lumps.iter().filter(|l| l.0 == m).collect();
+        let step = debt_sim.step_with(&month_lumps.iter().map(|l| (l.1, l.2)).collect::<Vec<_>>());
         if !debt_buckets.is_empty() {
             let next = debt_sim.clone().step();
             for &(k, di) in &debt_buckets {
@@ -245,9 +257,20 @@ pub fn project(data: &AppData, today: NaiveDate, years: u32) -> Projection {
             }
         }
         for (k, pay) in step.payments.iter().enumerate() {
+            // Regular payments come from the debt's account; one-time ones from their own.
+            let regular = pay - step.one_time[k];
             match debt_accounts[k] {
-                Some(i) => balances[i] -= pay,
-                None => virtual_cash -= pay,
+                Some(i) => balances[i] -= regular,
+                None => virtual_cash -= regular,
+            }
+            let mut one_time = step.one_time[k];
+            for l in month_lumps.iter().filter(|l| l.1 == k) {
+                let part = one_time.min(l.2);
+                one_time -= part;
+                match l.3 {
+                    Some(i) => balances[i] -= part,
+                    None => virtual_cash -= part,
+                }
             }
         }
 
@@ -578,6 +601,42 @@ mod tests {
         assert_eq!(p.months[2].buckets[0], 0.0);
         assert_eq!(p.months[5].buckets[0], 0.0);
         assert_eq!(p.months[2].debt, 0.0);
+    }
+
+    #[test]
+    fn planned_one_time_payment_comes_from_its_account() {
+        let mut data = AppData::default();
+        data.accounts.push(account(1, AccountKind::Checking, 1000.0, 0.0, 0.0, false));
+        data.accounts.push(account(2, AccountKind::Savings, 5000.0, 0.0, 0.0, false));
+        data.debts.push(crate::debt::Debt {
+            id: 1,
+            name: "Card".into(),
+            kind: crate::debt::DebtKind::CreditCard,
+            balance: 2000.0,
+            apr: 0.0,
+            min_payment: 100.0,
+            account_id: None,
+            notes: String::new(),
+        });
+        data.debt_payments.push(crate::debt::DebtPayment {
+            id: 1,
+            debt_id: 1,
+            date: d(2026, 3, 20),
+            amount: 1500.0,
+            account_id: Some(2),
+            notes: String::new(),
+            logged: false,
+            applied: 0.0,
+            deducted: false,
+        });
+        let p = project(&data, d(2026, 1, 1), 1);
+        // Jan, Feb: 100 each from checking. March: 100 from checking + 1,500 from savings.
+        assert_eq!(p.months[2].debt, 2000.0 - 300.0 - 1500.0);
+        assert_eq!(p.months[2].accounts[0], 1000.0 - 300.0);
+        assert_eq!(p.months[2].accounts[1], 5000.0 - 1500.0);
+        // April: 100 left, paid off.
+        assert_eq!(p.months[3].debt, 100.0);
+        assert_eq!(p.months[4].debt, 0.0);
     }
 
     #[test]

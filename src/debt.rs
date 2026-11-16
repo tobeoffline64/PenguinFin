@@ -8,7 +8,7 @@
 //! the total monthly payment stays the same until everything is paid.
 
 use crate::model::add_months_clamped;
-use chrono::NaiveDate;
+use chrono::{Datelike, NaiveDate};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -81,6 +81,30 @@ impl Debt {
     }
 }
 
+/// A one-time payment toward a debt: either already made ("logged", which reduced the debt
+/// balance when it was recorded) or planned for a future date (applied by the plan and
+/// projections in that month).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct DebtPayment {
+    pub id: i64,
+    pub debt_id: i64,
+    pub date: NaiveDate,
+    pub amount: f64,
+    /// Account the money comes from (`None` = the debt's own paying account).
+    pub account_id: Option<i64>,
+    pub notes: String,
+    /// True once made and recorded; false while it's planned.
+    pub logged: bool,
+    /// For logged payments: how much the debt balance actually went down (capped at what
+    /// was owed), so undoing restores it exactly.
+    pub applied: f64,
+    /// For logged payments: whether the amount was also taken off the account's balance.
+    pub deducted: bool,
+}
+
+/// A planned one-time payment for the simulator: (debt index, amount).
+pub type Lump = (usize, f64);
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 pub enum Strategy {
     /// Highest interest rate first: least interest paid.
@@ -136,7 +160,10 @@ pub struct Simulator {
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct MonthStep {
     pub interest: Vec<f64>,
+    /// Everything paid toward each debt this month (regular + one-time).
     pub payments: Vec<f64>,
+    /// The one-time part of `payments`.
+    pub one_time: Vec<f64>,
 }
 
 impl MonthStep {
@@ -190,8 +217,14 @@ impl Simulator {
     }
 
     pub fn step(&mut self) -> MonthStep {
+        self.step_with(&[])
+    }
+
+    /// One month, plus one-time payments. Each one-time payment goes to its own debt and is
+    /// capped at what's still owed (it never overpays or spills onto other debts).
+    pub fn step_with(&mut self, lumps: &[Lump]) -> MonthStep {
         let n = self.balances.len();
-        let mut s = MonthStep { interest: vec![0.0; n], payments: vec![0.0; n] };
+        let mut s = MonthStep { interest: vec![0.0; n], payments: vec![0.0; n], one_time: vec![0.0; n] };
         if self.is_paid_off() {
             return s;
         }
@@ -222,6 +255,14 @@ impl Simulator {
             self.balances[i] -= pay;
             s.payments[i] += pay;
             left -= pay;
+        }
+        for &(i, amount) in lumps {
+            if i < n {
+                let pay = amount.max(0.0).min(self.balances[i]);
+                self.balances[i] -= pay;
+                s.payments[i] += pay;
+                s.one_time[i] += pay;
+            }
         }
         for b in &mut self.balances {
             if *b < 0.005 {
@@ -264,6 +305,34 @@ impl PayoffPlan {
 
 /// Simulate until debt-free or `max_months`, starting in the month of `start`.
 pub fn plan(debts: &[Debt], strategy: Strategy, extra: f64, rollover: bool, start: NaiveDate, max_months: u32) -> PayoffPlan {
+    plan_with(debts, strategy, extra, rollover, start, max_months, &[])
+}
+
+/// One-time payments planned for each month, as simulator lumps: planned (not yet logged)
+/// payments dated in or after `start`'s month. Index 0 = `start`'s month.
+pub fn planned_lumps(debts: &[Debt], payments: &[DebtPayment], start: NaiveDate) -> Vec<(u32, Lump)> {
+    let first = add_months_clamped(start, 0, 1).unwrap_or(start);
+    payments
+        .iter()
+        .filter(|p| !p.logged && p.amount > 0.0)
+        .filter_map(|p| {
+            let i = debts.iter().position(|d| d.id == p.debt_id)?;
+            let months = (p.date.year() - first.year()) * 12 + p.date.month() as i32 - first.month() as i32;
+            (months >= 0).then_some((months as u32, (i, p.amount)))
+        })
+        .collect()
+}
+
+/// Like [`plan`], with one-time payments: `(month index, (debt index, amount))`.
+pub fn plan_with(
+    debts: &[Debt],
+    strategy: Strategy,
+    extra: f64,
+    rollover: bool,
+    start: NaiveDate,
+    max_months: u32,
+    lumps: &[(u32, Lump)],
+) -> PayoffPlan {
     let mut sim = Simulator::new(debts, strategy, extra, rollover);
     let first = add_months_clamped(start, 0, 1).unwrap_or(start);
     let mut p = PayoffPlan {
@@ -282,7 +351,8 @@ pub fn plan(debts: &[Debt], strategy: Strategy, extra: f64, rollover: bool, star
             break;
         }
         let month = add_months_clamped(first, m, 1).unwrap_or(first);
-        let s = sim.step();
+        let this_month: Vec<Lump> = lumps.iter().filter(|(k, _)| *k == m).map(|(_, l)| *l).collect();
+        let s = sim.step_with(&this_month);
         p.total_interest += s.total_interest();
         p.total_paid += s.total_payment();
         for (i, x) in s.interest.iter().enumerate() {
@@ -354,6 +424,37 @@ mod tests {
         // Budget is constant while debts remain: 245 + 300.
         assert!((av.months[0].payments.iter().sum::<f64>() - 545.0).abs() < 1e-9);
         assert!((av.months[5].payments.iter().sum::<f64>() - 545.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn one_time_payments_shorten_the_plan_and_are_capped() {
+        let debts = [debt(1, 3000.0, 20.0, 100.0), debt(2, 1000.0, 10.0, 50.0)];
+        let start = d(2026, 1);
+        let base = plan(&debts, Strategy::Avalanche, 0.0, true, start, 600);
+        // $1,000 toward the second debt in month 3 (April).
+        let pays = [DebtPayment {
+            id: 1,
+            debt_id: 2,
+            date: NaiveDate::from_ymd_opt(2026, 4, 15).unwrap(),
+            amount: 1000.0,
+            account_id: None,
+            notes: "Tax refund".into(),
+            logged: false,
+            applied: 0.0,
+            deducted: false,
+        }];
+        let lumps = planned_lumps(&debts, &pays, start);
+        assert_eq!(lumps, vec![(3, (1, 1000.0))]);
+        let with = plan_with(&debts, Strategy::Avalanche, 0.0, true, start, 600, &lumps);
+        assert!(with.total_interest < base.total_interest);
+        assert!(with.months.len() < base.months.len());
+        // Debt 2 is paid off that month; the payment is capped at what was owed (< $1,000 + min).
+        assert_eq!(with.payoff[1], Some(d(2026, 4)));
+        assert!(with.months[3].payments[1] < 1000.0);
+        // Logged payments (already applied to balances) and past ones are ignored.
+        let logged = [DebtPayment { logged: true, ..pays[0].clone() }];
+        assert!(planned_lumps(&debts, &logged, start).is_empty());
+        assert!(planned_lumps(&debts, &pays, d(2026, 5)).is_empty());
     }
 
     #[test]

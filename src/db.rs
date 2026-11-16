@@ -1,6 +1,6 @@
 //! Local SQLite storage. Everything lives in a single file in the user's data dir.
 
-use crate::debt::{Debt, DebtKind, Strategy};
+use crate::debt::{Debt, DebtKind, DebtPayment, Strategy};
 use crate::fred::{FredConfig, Indicator, InflationSource, MarketData, MarketValue};
 use crate::model::*;
 use chrono::NaiveDate;
@@ -43,7 +43,7 @@ pub fn default_db_path() -> PathBuf {
     data_dir().join("penguinfin.db")
 }
 
-const SCHEMA_VERSION: i64 = 6;
+const SCHEMA_VERSION: i64 = 7;
 
 pub struct Db {
     conn: Connection,
@@ -213,7 +213,27 @@ impl Db {
                 )
                 .map_err(e)?;
         }
-        const { assert!(SCHEMA_VERSION == 6, "add a migration step above") };
+        if version < 7 {
+            self.conn
+                .execute_batch(
+                    "BEGIN;
+                CREATE TABLE IF NOT EXISTS debt_payments (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    debt_id INTEGER NOT NULL REFERENCES debts(id) ON DELETE CASCADE,
+                    date TEXT NOT NULL,
+                    amount REAL NOT NULL,
+                    account_id INTEGER REFERENCES accounts(id) ON DELETE SET NULL,
+                    notes TEXT NOT NULL DEFAULT '',
+                    logged INTEGER NOT NULL DEFAULT 0,
+                    applied REAL NOT NULL DEFAULT 0,
+                    deducted INTEGER NOT NULL DEFAULT 0
+                );
+                PRAGMA user_version = 7;
+                COMMIT;",
+                )
+                .map_err(e)?;
+        }
+        const { assert!(SCHEMA_VERSION == 7, "add a migration step above") };
         Ok(())
     }
 
@@ -227,6 +247,7 @@ impl Db {
             goals: self.goals()?,
             buckets: self.buckets()?,
             debts: self.debts()?,
+            debt_payments: self.debt_payments()?,
             settings: self.settings()?,
             fred: self.fred_config()?,
             market: self.market_data()?,
@@ -580,6 +601,98 @@ impl Db {
         Ok(())
     }
 
+    pub fn debt_payments(&self) -> Result<Vec<DebtPayment>> {
+        let mut st = self.conn.prepare("SELECT * FROM debt_payments ORDER BY date DESC, id DESC").map_err(e)?;
+        let rows = st
+            .query_map([], |r| {
+                let date: String = r.get("date")?;
+                Ok(DebtPayment {
+                    id: r.get("id")?,
+                    debt_id: r.get("debt_id")?,
+                    date: date_from_sql(&date),
+                    amount: r.get("amount")?,
+                    account_id: r.get("account_id")?,
+                    notes: r.get("notes")?,
+                    logged: r.get::<_, i64>("logged")? != 0,
+                    applied: r.get("applied")?,
+                    deducted: r.get::<_, i64>("deducted")? != 0,
+                })
+            })
+            .map_err(e)?;
+        rows.collect::<rusqlite::Result<Vec<_>>>().map_err(e)
+    }
+
+    /// Store a payment row as-is (no balance changes). Used for planned payments and restores.
+    fn insert_debt_payment(&self, p: &DebtPayment) -> Result<i64> {
+        self.conn
+            .execute(
+                "INSERT INTO debt_payments (debt_id, date, amount, account_id, notes, logged, applied, deducted)
+                 VALUES (?1,?2,?3,?4,?5,?6,?7,?8)",
+                params![
+                    p.debt_id,
+                    date_to_sql(p.date),
+                    p.amount,
+                    p.account_id,
+                    p.notes,
+                    p.logged as i64,
+                    p.applied,
+                    p.deducted as i64
+                ],
+            )
+            .map_err(e)?;
+        Ok(self.conn.last_insert_rowid())
+    }
+
+    /// Plan a future one-time payment (applied by the payoff plan and projections).
+    pub fn plan_debt_payment(&self, p: &DebtPayment) -> Result<i64> {
+        self.insert_debt_payment(&DebtPayment { id: 0, logged: false, applied: 0.0, deducted: false, ..p.clone() })
+    }
+
+    /// Record a payment that was made: lowers the debt balance (never below zero) and, when
+    /// `deduct` is set, the paying account's balance. A planned payment (`p.id != 0`) is
+    /// turned into a logged one.
+    pub fn log_debt_payment(&mut self, p: &DebtPayment, deduct: bool) -> Result<i64> {
+        let data = self.load()?;
+        let debt = data.debts.iter().find(|d| d.id == p.debt_id).ok_or("That debt no longer exists.")?;
+        let account = p.account_id.or(debt.account_id).filter(|id| data.accounts.iter().any(|a| a.id == *id));
+        let account = account.or_else(|| data.primary_cash_account().map(|a| a.id));
+        let applied = p.amount.max(0.0).min(debt.balance.max(0.0));
+        let tx = self.conn.transaction().map_err(e)?;
+        tx.execute("UPDATE debts SET balance = MAX(balance - ?1, 0) WHERE id = ?2", params![applied, p.debt_id]).map_err(e)?;
+        let deducted = deduct && account.is_some();
+        if deducted {
+            tx.execute("UPDATE accounts SET balance = balance - ?1 WHERE id = ?2", params![p.amount, account]).map_err(e)?;
+        }
+        if p.id != 0 {
+            tx.execute("DELETE FROM debt_payments WHERE id = ?1", [p.id]).map_err(e)?;
+        }
+        tx.execute(
+            "INSERT INTO debt_payments (debt_id, date, amount, account_id, notes, logged, applied, deducted)
+             VALUES (?1,?2,?3,?4,?5,1,?6,?7)",
+            params![p.debt_id, date_to_sql(p.date), p.amount, account, p.notes, applied, deducted as i64],
+        )
+        .map_err(e)?;
+        let id = tx.last_insert_rowid();
+        tx.commit().map_err(e)?;
+        Ok(id)
+    }
+
+    /// Delete a payment. For a logged one this is an undo: the debt balance (and the
+    /// account balance, if it was deducted) are restored.
+    pub fn delete_debt_payment(&mut self, id: i64) -> Result<()> {
+        let Some(p) = self.debt_payments()?.into_iter().find(|p| p.id == id) else { return Ok(()) };
+        let tx = self.conn.transaction().map_err(e)?;
+        if p.logged {
+            tx.execute("UPDATE debts SET balance = balance + ?1 WHERE id = ?2", params![p.applied, p.debt_id]).map_err(e)?;
+            if p.deducted && p.account_id.is_some() {
+                tx.execute("UPDATE accounts SET balance = balance + ?1 WHERE id = ?2", params![p.amount, p.account_id])
+                    .map_err(e)?;
+            }
+        }
+        tx.execute("DELETE FROM debt_payments WHERE id = ?1", [id]).map_err(e)?;
+        tx.commit().map_err(e)
+    }
+
     pub fn buckets(&self) -> Result<Vec<Bucket>> {
         let mut st = self.conn.prepare("SELECT * FROM buckets ORDER BY account_id, id").map_err(e)?;
         let rows = st
@@ -787,7 +900,7 @@ impl Db {
     pub fn replace_all(&mut self, data: &AppData) -> Result<()> {
         let tx = self.conn.transaction().map_err(e)?;
         tx.execute_batch(
-            "DELETE FROM cash_flows; DELETE FROM buckets; DELETE FROM debts; DELETE FROM holdings; DELETE FROM accounts; DELETE FROM goals;",
+            "DELETE FROM cash_flows; DELETE FROM debt_payments; DELETE FROM buckets; DELETE FROM debts; DELETE FROM holdings; DELETE FROM accounts; DELETE FROM goals;",
         )
         .map_err(e)?;
         tx.commit().map_err(e)?;
@@ -808,6 +921,17 @@ impl Db {
             let new_id =
                 self.save_debt(&Debt { id: 0, account_id: d.account_id.and_then(|a| id_map.get(&a).copied()), ..d.clone() })?;
             debt_map.insert(d.id, new_id);
+        }
+        // Payment history is restored as-is (backed-up balances already include it).
+        for p in &data.debt_payments {
+            if let Some(&debt_id) = debt_map.get(&p.debt_id) {
+                self.insert_debt_payment(&DebtPayment {
+                    id: 0,
+                    debt_id,
+                    account_id: p.account_id.and_then(|a| id_map.get(&a).copied()),
+                    ..p.clone()
+                })?;
+            }
         }
         let mut bucket_map = std::collections::HashMap::new();
         for b in &data.buckets {
@@ -1081,6 +1205,67 @@ mod tests {
         db.remove_debt_bucket(store_card).unwrap();
         assert!(db.buckets().unwrap().is_empty());
         assert_eq!(db.debts().unwrap().len(), 1);
+    }
+
+    #[test]
+    fn logging_and_undoing_one_time_payments() {
+        let mut db = Db::open_in_memory().unwrap();
+        let today = NaiveDate::from_ymd_opt(2026, 11, 15).unwrap();
+        db.replace_all(&crate::sample::sample_data(today)).unwrap();
+        let data = db.load().unwrap();
+        let store_card = data.debts.iter().find(|d| d.name == "Store card").unwrap().clone();
+        let checking = data.primary_cash_account().unwrap().clone();
+        let pay = |amount, date| DebtPayment {
+            id: 0,
+            debt_id: store_card.id,
+            date,
+            amount,
+            account_id: None,
+            notes: "bonus".into(),
+            logged: false,
+            applied: 0.0,
+            deducted: false,
+        };
+
+        // Log $400: debt and checking both go down.
+        let id = db.log_debt_payment(&pay(400.0, today), true).unwrap();
+        let after = db.load().unwrap();
+        let debt_bal = |d: &AppData| d.debts.iter().find(|x| x.id == store_card.id).unwrap().balance;
+        let acct_bal = |d: &AppData| d.accounts.iter().find(|a| a.id == checking.id).unwrap().balance;
+        assert_eq!(debt_bal(&after), store_card.balance - 400.0);
+        assert_eq!(acct_bal(&after), checking.balance - 400.0);
+        let logged = after.debt_payments.iter().find(|p| p.id == id).unwrap();
+        assert!(logged.logged && logged.deducted && logged.applied == 400.0);
+        assert_eq!(logged.account_id, Some(checking.id));
+
+        // Overpaying is capped at what's owed; undo restores exactly.
+        let id2 = db.log_debt_payment(&pay(1000.0, today), false).unwrap();
+        let after2 = db.load().unwrap();
+        assert_eq!(debt_bal(&after2), 0.0);
+        assert_eq!(acct_bal(&after2), checking.balance - 400.0); // not deducted this time
+        db.delete_debt_payment(id2).unwrap();
+        db.delete_debt_payment(id).unwrap();
+        let undone = db.load().unwrap();
+        assert_eq!(debt_bal(&undone), store_card.balance);
+        assert_eq!(acct_bal(&undone), checking.balance);
+
+        // A planned payment changes nothing until it's logged.
+        let future = NaiveDate::from_ymd_opt(2027, 4, 15).unwrap();
+        let pid = db.plan_debt_payment(&pay(300.0, future)).unwrap();
+        assert_eq!(debt_bal(&db.load().unwrap()), store_card.balance);
+        let planned = db.load().unwrap().debt_payments.into_iter().find(|p| p.id == pid).unwrap();
+        db.log_debt_payment(&planned, true).unwrap();
+        let done = db.load().unwrap();
+        assert_eq!(debt_bal(&done), store_card.balance - 300.0);
+        assert_eq!(done.debt_payments.len(), 1);
+        assert!(done.debt_payments[0].logged);
+
+        // Restore keeps history without applying it twice.
+        let mut other = Db::open_in_memory().unwrap();
+        other.replace_all(&done).unwrap();
+        let restored = other.load().unwrap();
+        assert_eq!(restored.debt_payments.len(), 1);
+        assert_eq!(restored.debts.iter().find(|d| d.name == "Store card").unwrap().balance, store_card.balance - 300.0);
     }
 
     #[test]

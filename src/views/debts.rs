@@ -8,7 +8,7 @@ use crate::views::dashboard::PageHeader;
 use crate::widgets::*;
 use chrono::NaiveDate;
 use dioxus::prelude::*;
-use penguinfin::debt::{Debt, DebtKind, PayoffPlan, Strategy, payment_for_months, plan};
+use penguinfin::debt::{Debt, DebtKind, DebtPayment, PayoffPlan, Strategy, payment_for_months, plan, plan_with, planned_lumps};
 use penguinfin::model::FlowKind;
 
 /// Plans run up to 50 years; anything longer is reported as "not paid off".
@@ -52,9 +52,11 @@ pub fn DebtsPage() -> Element {
         async move {
             crate::app::off_thread(move || {
                 let s = &data.settings;
+                // Planned one-time payments count in both plans.
+                let lumps = planned_lumps(&data.debts, &data.debt_payments, today);
                 Plans {
-                    chosen: plan(&data.debts, s.debt_strategy, s.debt_extra_monthly, true, today, MAX_MONTHS),
-                    minimums_only: plan(&data.debts, s.debt_strategy, 0.0, false, today, MAX_MONTHS),
+                    chosen: plan_with(&data.debts, s.debt_strategy, s.debt_extra_monthly, true, today, MAX_MONTHS, &lumps),
+                    minimums_only: plan_with(&data.debts, s.debt_strategy, 0.0, false, today, MAX_MONTHS, &lumps),
                 }
             })
             .await
@@ -78,6 +80,10 @@ pub fn DebtsPage() -> Element {
     let interest_now: f64 = data.debts.iter().map(Debt::monthly_interest).sum();
     let strategy = data.settings.debt_strategy;
     let suggestion = (available - minimums).max(0.0);
+    let account_options: Vec<(String, String)> = std::iter::once((String::new(), "The debt's paying account".to_string()))
+        .chain(data.accounts.iter().map(|a| (a.id.to_string(), a.name.clone())))
+        .collect();
+    let history: Vec<DebtPayment> = data.debt_payments.iter().filter(|p| p.logged).cloned().collect();
     // The debt that currently gets the extra payment: first in plan order still owed.
     let target = plan_order(&data.debts, plans_value.as_ref()).into_iter().find(|&i| data.debts[i].balance > 0.0);
 
@@ -219,6 +225,8 @@ pub fn DebtsPage() -> Element {
                                     sym: sym.clone(),
                                     pay_from: data.debts[idx].account_id.and_then(|a| data.account_name(a)).map(str::to_string)
                                         .unwrap_or_else(|| data.primary_cash_account().map(|a| a.name.clone()).unwrap_or_default()),
+                                    payments: data.debt_payments.iter().filter(|p| p.debt_id == data.debts[idx].id).cloned().collect::<Vec<_>>(),
+                                    account_options: account_options.clone(),
                                     set_aside: data.buckets.iter().find(|b| b.debt_id == Some(data.debts[idx].id))
                                         .map(|b| (b.balance, data.account_name(b.account_id).unwrap_or("").to_string())),
                                     on_edit: move |d: Debt| {
@@ -232,6 +240,9 @@ pub fn DebtsPage() -> Element {
                     }
                     if let Some(p) = &plans_value {
                         Schedule { plan: p.chosen.clone(), debts: data.debts.clone(), sym: sym.clone() }
+                    }
+                    if !history.is_empty() {
+                        PaymentHistory { payments: history.clone(), sym: sym.clone() }
                     }
                 }
             }
@@ -295,14 +306,23 @@ fn DebtCard(
     is_target: bool,
     /// (amount set aside now, account name) when the debt has a payment bucket.
     set_aside: Option<(f64, String)>,
+    /// This debt's one-time payments (logged and planned).
+    payments: Vec<DebtPayment>,
+    account_options: Vec<(String, String)>,
     sym: String,
     pay_from: String,
     on_edit: EventHandler<Debt>,
 ) -> Element {
     let mut store = use_store();
     let mut confirm = use_signal(|| false);
+    let mut paying = use_signal(|| false);
     let id = debt.id;
     let d2 = debt.clone();
+    let today = today();
+    let mut planned: Vec<DebtPayment> = payments.iter().filter(|p| !p.logged).cloned().collect();
+    planned.sort_by_key(|p| p.date);
+    let logged: Vec<DebtPayment> = payments.iter().filter(|p| p.logged).cloned().collect();
+    let paid_extra: f64 = logged.iter().map(|p| p.applied).sum();
     let border = if selected { "rounded-lg border border-ring p-4" } else { "rounded-lg border p-4" };
     let interest = debt.monthly_interest();
     let covers_interest = debt.min_payment > interest + 0.005 || debt.balance <= 0.0;
@@ -362,7 +382,49 @@ fn DebtCard(
                         }
                     }
                 }
+                // One-time payments: planned (future / past-due) and recently logged.
+                if !planned.is_empty() || !logged.is_empty() {
+                    div { class: "flex flex-col gap-1 rounded-md border px-3 py-2 text-xs",
+                        for pp in planned.iter().cloned() {
+                            div { key: "p{pp.id}", class: "flex flex-wrap items-center gap-2",
+                                if pp.date < today {
+                                    Badge { variant: BadgeVariant::Warning, size: BadgeSize::Sm, "Was planned" }
+                                    span { class: "flex-1", "{money_cents(pp.amount, &sym)} on {pp.date.format(\"%b %-d, %Y\")}{note_suffix(&pp.notes)}. Did you make it?" }
+                                    Button { size: ButtonSize::Sm, variant: ButtonVariant::Outline,
+                                        onclick: { let pp = pp.clone(); move |_| store.mutate("Payment logged", |db| db.log_debt_payment(&pp, true).map(|_| ())) },
+                                        "Log it" }
+                                } else {
+                                    Badge { variant: BadgeVariant::Info, size: BadgeSize::Sm, "Planned" }
+                                    span { class: "flex-1", "{money_cents(pp.amount, &sym)} on {pp.date.format(\"%b %-d, %Y\")}{note_suffix(&pp.notes)}" }
+                                }
+                                Button { size: ButtonSize::Sm, variant: ButtonVariant::Ghost,
+                                    onclick: { let pid = pp.id; move |_| store.mutate("Planned payment removed", |db| db.delete_debt_payment(pid)) },
+                                    "Remove" }
+                            }
+                        }
+                        for lp in logged.iter().take(3).cloned() {
+                            div { key: "l{lp.id}", class: "flex flex-wrap items-center gap-2",
+                                Badge { variant: BadgeVariant::Success, size: BadgeSize::Sm, "Paid" }
+                                span { class: "flex-1", "{money_cents(lp.amount, &sym)} on {lp.date.format(\"%b %-d, %Y\")}{note_suffix(&lp.notes)}" }
+                                Button { size: ButtonSize::Sm, variant: ButtonVariant::Ghost, title: "Undo: puts the balances back",
+                                    onclick: { let pid = lp.id; move |_| store.mutate("Payment undone", |db| db.delete_debt_payment(pid)) },
+                                    "Undo" }
+                            }
+                        }
+                        if paid_extra > 0.0 {
+                            span { class: "text-muted-foreground", "One-time payments so far: {money(paid_extra, &sym)}" }
+                        }
+                    }
+                }
+                if paying() {
+                    PaymentForm { debt: debt.clone(), account_options: account_options.clone(), sym: sym.clone(),
+                        on_done: move |_| paying.set(false) }
+                }
                 div { class: "flex flex-wrap items-center gap-2 text-xs",
+                    if debt.balance > 0.0 && !paying() {
+                        Button { size: ButtonSize::Sm, variant: ButtonVariant::Outline, onclick: move |_| paying.set(true),
+                            Icon { name: IconName::Plus } "Log a payment" }
+                    }
                     match &set_aside {
                         Some((amount, account)) => rsx! {
                             span { class: "text-muted-foreground",
@@ -684,4 +746,154 @@ fn DebtFormCard(form: Signal<DebtForm>, generation: Signal<u32>, sym: String) ->
             }
         }
     }
+}
+
+/// Inline form to log a one-time payment (today or earlier) or schedule one (future date).
+#[component]
+fn PaymentForm(debt: Debt, account_options: Vec<(String, String)>, sym: String, on_done: EventHandler<()>) -> Element {
+    let mut store = use_store();
+    let today = today();
+    let mut amount = use_signal(String::new);
+    let mut date = use_signal(|| today.format("%Y-%m-%d").to_string());
+    let mut account = use_signal(String::new);
+    let mut deduct = use_signal(|| true);
+    let mut notes = use_signal(String::new);
+    let mut error = use_signal(|| None::<String>);
+    let parsed_date = NaiveDate::parse_from_str(date().trim(), "%Y-%m-%d").ok();
+    let future = parsed_date.is_some_and(|d| d > today);
+    let account_name = {
+        let data = store.data.read();
+        account()
+            .parse::<i64>()
+            .ok()
+            .or(debt.account_id)
+            .and_then(|id| data.account_name(id).map(str::to_string))
+            .or_else(|| data.primary_cash_account().map(|a| a.name.clone()))
+            .unwrap_or_else(|| "the account".into())
+    };
+    let debt_id = debt.id;
+    // Name the default choice after the account it stands for.
+    let usual = {
+        let data = store.data.read();
+        debt.account_id
+            .and_then(|id| data.account_name(id).map(str::to_string))
+            .or_else(|| data.primary_cash_account().map(|a| a.name.clone()))
+    };
+    let mut account_options = account_options;
+    if let (Some(first), Some(name)) = (account_options.first_mut(), usual) {
+        first.1 = format!("{name} (usual)");
+    }
+    let submit = move |_| {
+        let Some(a) = parse_num(&amount()).filter(|v| *v > 0.0) else {
+            return error.set(Some("Enter the amount you paid.".into()));
+        };
+        let Some(d) = NaiveDate::parse_from_str(date().trim(), "%Y-%m-%d").ok() else {
+            return error.set(Some("Pick the date of the payment.".into()));
+        };
+        let p = DebtPayment {
+            id: 0,
+            debt_id,
+            date: d,
+            amount: a,
+            account_id: account().parse().ok(),
+            notes: notes().trim().to_string(),
+            logged: false,
+            applied: 0.0,
+            deducted: false,
+        };
+        if d > today {
+            store.mutate("Payment scheduled; your plan now includes it", |db| db.plan_debt_payment(&p).map(|_| ()));
+        } else {
+            let deduct = deduct();
+            store.mutate("Payment logged", |db| db.log_debt_payment(&p, deduct).map(|_| ()));
+        }
+        on_done.call(());
+    };
+    rsx! {
+        div { class: "flex flex-col gap-3 rounded-md border bg-muted/40 p-3",
+            div { class: "text-sm font-medium", "One-time payment toward {debt.name}" }
+            div { class: "grid grid-cols-2 gap-3 @2xl:grid-cols-3",
+                Field { label: "Amount ({sym})",
+                    Input { value: amount(), placeholder: "e.g. 500", oninput: move |e: FormEvent| amount.set(e.value()) } }
+                Field { label: "Date",
+                    Input { r#type: InputType::Date, value: date(), oninput: move |e: FormEvent| date.set(e.value()) } }
+                Field { label: "Paid from",
+                    NativeSelect { value: account(), options: account_options.clone(), onchange: move |v: String| account.set(v) } }
+            }
+            Field { label: "Note",
+                Input { value: notes(), placeholder: "Optional, e.g. tax refund", oninput: move |e: FormEvent| notes.set(e.value()) } }
+            if future {
+                p { class: "text-xs text-muted-foreground",
+                    "This date is in the future, so it's scheduled: your payoff plan and projections include it now, and you'll be asked to confirm it once the date passes." }
+            } else {
+                div { class: "flex items-start justify-between gap-3",
+                    div { class: "flex flex-col",
+                        span { class: "text-sm", "Also subtract it from {account_name}'s balance" }
+                        span { class: "text-xs text-muted-foreground", "Turn off if you've already updated that account's balance." }
+                    }
+                    crate::ui::switch::Switch { checked: deduct(), aria_label: "Subtract from account balance", onchange: move |v| deduct.set(v) }
+                }
+            }
+            if let Some(e) = error() { p { class: "text-xs text-destructive", "{e}" } }
+            div { class: "flex gap-2",
+                Button { size: ButtonSize::Sm, onclick: submit, if future { "Schedule payment" } else { "Log payment" } }
+                Button { size: ButtonSize::Sm, variant: ButtonVariant::Ghost, onclick: move |_| on_done.call(()), "Cancel" }
+            }
+        }
+    }
+}
+
+/// Every one-time payment that was made, newest first, with undo.
+#[component]
+fn PaymentHistory(payments: Vec<DebtPayment>, sym: String) -> Element {
+    let mut store = use_store();
+    let data = store.data.read().clone();
+    let total: f64 = payments.iter().map(|p| p.applied).sum();
+    rsx! {
+        Card {
+            CardHeader {
+                CardTitle { "Payment history" }
+                CardDescription { "One-time payments you've logged: {money(total, &sym)} off your debt so far. Undo puts the balances back." }
+            }
+            CardContent {
+                TableWrapper { class: "max-h-[24rem]",
+                    Table {
+                        TableHeader {
+                            TableRow {
+                                TableHead { "Date" }
+                                TableHead { "Debt" }
+                                TableHead { class: "text-right", "Amount" }
+                                TableHead { "From" }
+                                TableHead { "Note" }
+                                TableHead { "" }
+                            }
+                        }
+                        TableBody {
+                            for p in payments.iter().cloned() {
+                                TableRow { key: "{p.id}",
+                                    TableCell { class: "whitespace-nowrap", "{p.date.format(\"%b %-d, %Y\")}" }
+                                    TableCell { {data.debts.iter().find(|d| d.id == p.debt_id).map(|d| d.name.clone()).unwrap_or_default()} }
+                                    TableCell { class: "text-right tabular-nums", {money_cents(p.amount, &sym)} }
+                                    TableCell { class: "text-muted-foreground",
+                                        {p.account_id.and_then(|a| data.account_name(a)).unwrap_or("").to_string()}
+                                        if !p.deducted { " (balance not changed)" }
+                                    }
+                                    TableCell { class: "text-muted-foreground", "{p.notes}" }
+                                    TableCell { class: "text-right",
+                                        Button { size: ButtonSize::Sm, variant: ButtonVariant::Ghost,
+                                            onclick: { let pid = p.id; move |_| store.mutate("Payment undone", |db| db.delete_debt_payment(pid)) },
+                                            "Undo" }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+fn note_suffix(notes: &str) -> String {
+    if notes.is_empty() { String::new() } else { format!(" \u{b7} {notes}") }
 }

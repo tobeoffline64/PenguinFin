@@ -56,6 +56,24 @@ same until everything is paid.
   payment needed to be debt-free in 1, 2 or 3 years (standard loan amortization).
 - A month-by-month **payment schedule** (✓ marks the month a debt is paid off).
 
+## One-time payments
+
+Paid something extra, like a tax refund or a bonus? Click **Log a payment** on that debt:
+
+- **Amount**, **Date** (today by default), **Paid from** (the debt's usual account, or any other) and an
+  optional **Note**.
+- **Today or earlier**: the payment is logged. The debt's balance drops by the amount (never below zero)
+  and, with **Also subtract it from … balance** on, the account's balance drops too. Turn that switch off
+  if you've already updated the account balance yourself.
+- **A future date**: the payment is **scheduled**. It shows as *Planned* on the debt, and the payoff plan,
+  schedule, dashboard and projections already include it (taken from the chosen account in that month).
+  After the date passes it shows *Was planned … Did you make it?* with **Log it** (applies it as above) or
+  **Remove**.
+
+The debt card lists its planned and latest payments, and the **Payment history** card at the bottom of the
+page lists all of them. **Undo** puts both the debt balance and the account balance back exactly as they
+were. Payments are kept in JSON backups; restoring a backup doesn't apply them a second time.
+
 ## Everywhere else
 
 - The **Dashboard** overview chart shows a red **Debt** line and your debt-free date, and a **Debt payoff**

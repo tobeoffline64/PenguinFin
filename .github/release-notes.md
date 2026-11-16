@@ -34,6 +34,12 @@ curl -fL -o /tmp/penguinfin.flatpak https://github.com/tobeoffline64/penguinfin/
 flatpak install --user -y --reinstall /tmp/penguinfin.flatpak
 ```
 
+## New in 1.9.0
+- **Log one-time payments toward a debt.** Each debt on the Debt payoff page has a **Log a payment** button: enter the amount, date, the account it came from and an optional note (e.g. "tax refund"). The debt's balance drops right away, and the money is subtracted from that account too (switch that off if you've already updated the account's balance). The payoff plan, debt-free date, buckets and dashboard update immediately.
+- **Schedule a future payment.** Pick a date in the future and the payment is planned instead: your payoff plan, schedule and projections include it now (paid from the chosen account in that month). Once the date passes, the debt asks "Did you make it?" with **Log it** or **Remove**.
+- **Payment history** card lists every one-time payment; **Undo** on any of them puts the debt and account balances back. Payments are included in JSON backups.
+- Chart date labels no longer overlap at the right edge.
+
 ## New in 1.8.0
 - **Debt payments are set aside automatically.** Adding a debt now creates a "… payment" bucket in the account that pays it (switch it off on the form if you don't want one; existing debts get a "Set aside payments in a bucket" button). The bucket always holds that debt's planned payment for the month (minimum, plus the extra when it's the current target) and updates by itself when balances, the extra amount or the strategy change. Bucket money is reserved, so savings goals won't spend it.
 - In projections each debt bucket follows the payoff plan and empties when the debt is paid off; the Accounts & buckets chart shows it.

@@ -234,7 +234,8 @@ fn DebtOverview(debt_free: Option<chrono::NaiveDate>, sym: String) -> Element {
     let store = use_store();
     let data = store.data.read().clone();
     let s = &data.settings;
-    let p = penguinfin::debt::plan(&data.debts, s.debt_strategy, s.debt_extra_monthly, true, today(), 600);
+    let lumps = penguinfin::debt::planned_lumps(&data.debts, &data.debt_payments, today());
+    let p = penguinfin::debt::plan_with(&data.debts, s.debt_strategy, s.debt_extra_monthly, true, today(), 600, &lumps);
     let monthly = data.debt_monthly_budget();
     if p.months.is_empty() {
         return rsx! {};

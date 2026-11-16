@@ -40,7 +40,8 @@ Built in **Rust** with **[Dioxus](https://dioxuslabs.com) desktop** and componen
 - **Debt payoff**: credit cards and loans with balance, APR and minimum payment. Shows interest per month,
   minimum-only payoff, and payments needed to be debt-free in 1–3 years. A payoff plan (avalanche or snowball,
   with rollover) uses only what's left after rent, bills and expenses, with a chart and a monthly schedule.
-  Debt counts against net worth and is paid in projections.
+  Debt counts against net worth and is paid in projections. Log one-time payments (bonus, tax refund) or
+  schedule future ones; the plan and projections include them, and a payment history lets you undo any.
 - **Savings goals**: things to buy with a price, optional "want it by" date and priority. Shows when each becomes
   affordable from checking + savings while keeping every account's minimum balance, even through later bills in the
   projection; how much more to save per month to hit a date; and spendable cash over time after the purchases.
