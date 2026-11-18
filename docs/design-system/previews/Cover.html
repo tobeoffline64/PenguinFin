@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="en" data-theme="light">
+<head>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="stylesheet" href="../tokens.css">
+<link rel="stylesheet" href="bundle.css">
+<script>if (location.hash === "#dark") document.documentElement.dataset.theme = "dark";</script>
+<meta charset="utf-8">
+<title>PenguinFin</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600&display=swap">
+<style>
+  html, body { margin:0; height:100%; }
+  body { background:var(--background); color:var(--foreground); font-family:var(--font-sans); overflow:hidden; }
+  .cover { position:relative; height:288px; overflow:hidden; }
+  .art { position:absolute; top:0; left:480px; width:480px; height:288px; overflow:hidden; }
+  .art svg { display:block; width:480px; height:288px; }
+  .col { rx:var(--radius-lg); }
+  .ink { fill:var(--foreground); }
+  .lead { fill:var(--chart-3); }
+  .cash { fill:var(--chart-1); }
+  .gain { fill:var(--success); }
+  .tint { fill:var(--secondary); }
+  .owed { fill:var(--destructive); rx:var(--radius-sm); }
+  .dot { fill:var(--muted-foreground); }
+  .words { position:absolute; left:var(--space-8); bottom:var(--space-8); max-width:440px; }
+  .name { margin:0; font-size:72px; line-height:.95; font-weight:600; letter-spacing:-.025em; color:var(--foreground); }
+  .tag { margin:var(--space-3) 0 0 3px; font-size:14px; line-height:20px; color:var(--muted-foreground); }
+</style>
+</head>
+<body>
+<div class="cover">
+<div class="art" aria-hidden="true">
+<svg viewBox="0 0 480 288" width="480" height="288">
+<!--
+  blocks      secondary 64x96 (the tint) · chart-1 64x144 (cash) · chart-3 80x208 (the lead series, widest) · success 64x176 (money gained) · foreground 96 wide, bleeding off the top and right (the ink the interface is drawn in) · destructive 16x16 once (it only ever means money owed)
+  arrangement rising columns on one baseline space-8 above the edge, space-4 gutters: the app's projections, as blocks
+  pattern     a dot grid at a space-8 pitch behind the columns, from "Every number that can change or sit in a column gets tabular-nums": figures on a grid
+  scales      widths and heights in space-4 multiples; gutters space-4; baseline space-8; corners radius-lg, the small square radius-sm
+-->
+<circle class="dot" cx="16" cy="24" r="1.5"/><circle class="dot" cx="48" cy="24" r="1.5"/><circle class="dot" cx="80" cy="24" r="1.5"/><circle class="dot" cx="112" cy="24" r="1.5"/><circle class="dot" cx="144" cy="24" r="1.5"/><circle class="dot" cx="176" cy="24" r="1.5"/><circle class="dot" cx="208" cy="24" r="1.5"/><circle class="dot" cx="240" cy="24" r="1.5"/><circle class="dot" cx="272" cy="24" r="1.5"/><circle class="dot" cx="304" cy="24" r="1.5"/><circle class="dot" cx="336" cy="24" r="1.5"/><circle class="dot" cx="368" cy="24" r="1.5"/><circle class="dot" cx="400" cy="24" r="1.5"/><circle class="dot" cx="432" cy="24" r="1.5"/><circle class="dot" cx="464" cy="24" r="1.5"/><circle class="dot" cx="16" cy="56" r="1.5"/><circle class="dot" cx="48" cy="56" r="1.5"/><circle class="dot" cx="80" cy="56" r="1.5"/><circle class="dot" cx="112" cy="56" r="1.5"/><circle class="dot" cx="144" cy="56" r="1.5"/><circle class="dot" cx="176" cy="56" r="1.5"/><circle class="dot" cx="208" cy="56" r="1.5"/><circle class="dot" cx="240" cy="56" r="1.5"/><circle class="dot" cx="272" cy="56" r="1.5"/><circle class="dot" cx="304" cy="56" r="1.5"/><circle class="dot" cx="336" cy="56" r="1.5"/><circle class="dot" cx="368" cy="56" r="1.5"/><circle class="dot" cx="400" cy="56" r="1.5"/><circle class="dot" cx="432" cy="56" r="1.5"/><circle class="dot" cx="464" cy="56" r="1.5"/><circle class="dot" cx="16" cy="88" r="1.5"/><circle class="dot" cx="48" cy="88" r="1.5"/><circle class="dot" cx="80" cy="88" r="1.5"/><circle class="dot" cx="112" cy="88" r="1.5"/><circle class="dot" cx="144" cy="88" r="1.5"/><circle class="dot" cx="176" cy="88" r="1.5"/><circle class="dot" cx="208" cy="88" r="1.5"/><circle class="dot" cx="240" cy="88" r="1.5"/><circle class="dot" cx="272" cy="88" r="1.5"/><circle class="dot" cx="304" cy="88" r="1.5"/><circle class="dot" cx="336" cy="88" r="1.5"/><circle class="dot" cx="368" cy="88" r="1.5"/><circle class="dot" cx="400" cy="88" r="1.5"/><circle class="dot" cx="432" cy="88" r="1.5"/><circle class="dot" cx="464" cy="88" r="1.5"/><circle class="dot" cx="16" cy="120" r="1.5"/><circle class="dot" cx="48" cy="120" r="1.5"/><circle class="dot" cx="80" cy="120" r="1.5"/><circle class="dot" cx="112" cy="120" r="1.5"/><circle class="dot" cx="144" cy="120" r="1.5"/><circle class="dot" cx="176" cy="120" r="1.5"/><circle class="dot" cx="208" cy="120" r="1.5"/><circle class="dot" cx="240" cy="120" r="1.5"/><circle class="dot" cx="272" cy="120" r="1.5"/><circle class="dot" cx="304" cy="120" r="1.5"/><circle class="dot" cx="336" cy="120" r="1.5"/><circle class="dot" cx="368" cy="120" r="1.5"/><circle class="dot" cx="400" cy="120" r="1.5"/><circle class="dot" cx="432" cy="120" r="1.5"/><circle class="dot" cx="464" cy="120" r="1.5"/>
+<rect class="tint col" x="16" y="160" width="64" height="96" rx="10"/>
+<rect class="cash col" x="96" y="112" width="64" height="144" rx="10"/>
+<rect class="lead col" x="176" y="48" width="80" height="208" rx="10"/>
+<rect class="gain col" x="272" y="80" width="64" height="176" rx="10"/>
+<rect class="ink col" x="352" y="-16" width="144" height="272" rx="10"/>
+<rect class="owed" x="40" y="128" width="16" height="16" rx="6"/>
+</svg>
+</div>
+<div class="words">
+<h1 class="name">PenguinFin</h1>
+<p class="tag">Offline personal finance</p>
+</div>
+</div>
+</body>
+</html>

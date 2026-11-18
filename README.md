@@ -76,6 +76,10 @@ counted exactly, so a biweekly paycheck lands three times in some months.
 In v1, prices are typed in by hand. `src/prices.rs` defines a `PriceProvider` trait, so a live quote
 API can be added later without touching storage or the UI.
 
+## Design system
+
+Building a new screen or feature? Start with [docs/design-system](docs/design-system/README.md): tokens, component guidelines with previews, page patterns, the plan for iPhone and Android, and a [feature tree](docs/design-system/feature-tree.html) of everything the app does.
+
 ## Install on Windows
 
 Download `PenguinFin-<version>-windows-x64.zip` from the

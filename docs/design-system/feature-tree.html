@@ -1,0 +1,330 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<style>body{margin:0}[hidden]{display:none!important}</style>
+<title>PenguinFin Feature Tree</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: one reading column; a toolbar, then the tree drawn with hairline connectors, in PenguinFin's own neutral tokens. */
+:root {
+  --bg: oklch(1 0 0);
+  --fg: oklch(0.145 0 0);
+  --muted: oklch(0.556 0 0);
+  --line: oklch(0.88 0 0);
+  --fill: oklch(0.97 0 0);
+  --card: oklch(1 0 0);
+  --lead: oklch(0.546 0.245 262.881);
+  --lead-soft: oklch(0.95 0.04 262);
+  --info-l: oklch(0.95 0.08 250); --info-d: oklch(0.35 0.18 250);
+  --ok-l: oklch(0.95 0.08 145); --ok-d: oklch(0.35 0.16 145);
+  --warn-l: oklch(0.95 0.08 55); --warn-d: oklch(0.35 0.16 55);
+  --mark: oklch(0.93 0.12 95);
+  --font: "Inter", "Cantarell", "Noto Sans", system-ui, sans-serif;
+  --mono: "JetBrains Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --bg: oklch(0.18 0 0); --fg: oklch(0.985 0 0); --muted: oklch(0.708 0 0); --line: oklch(0.32 0 0);
+  --fill: oklch(0.235 0 0); --card: oklch(0.205 0 0); --lead: oklch(0.72 0.16 262); --lead-soft: oklch(0.28 0.06 262);
+  --info-l: oklch(0.27 0.08 250); --info-d: oklch(0.8 0.12 250); --ok-l: oklch(0.27 0.08 145); --ok-d: oklch(0.8 0.14 145);
+  --warn-l: oklch(0.28 0.08 55); --warn-d: oklch(0.82 0.13 55); --mark: oklch(0.42 0.1 95); color-scheme: dark; } }
+:root[data-theme="dark"] {
+  --bg: oklch(0.18 0 0); --fg: oklch(0.985 0 0); --muted: oklch(0.708 0 0); --line: oklch(0.32 0 0);
+  --fill: oklch(0.235 0 0); --card: oklch(0.205 0 0); --lead: oklch(0.72 0.16 262); --lead-soft: oklch(0.28 0.06 262);
+  --info-l: oklch(0.27 0.08 250); --info-d: oklch(0.8 0.12 250); --ok-l: oklch(0.27 0.08 145); --ok-d: oklch(0.8 0.14 145);
+  --warn-l: oklch(0.28 0.08 55); --warn-d: oklch(0.82 0.13 55); --mark: oklch(0.42 0.1 95); color-scheme: dark; }
+
+* { box-sizing: border-box; }
+body { background: var(--bg); color: var(--fg); font: 15px/1.5 var(--font); margin: 0; }
+.wrap { max-width: 64rem; margin: 0 auto; padding-block: 2.5rem 4rem;
+  padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); }
+header { display: flex; flex-direction: column; gap: .5rem; }
+h1 { font-size: 1.75rem; line-height: 1.2; font-weight: 600; letter-spacing: -.025em; margin: 0; text-wrap: balance; }
+.lede { color: var(--muted); margin: 0; max-width: 42rem; }
+.counts { display: flex; flex-wrap: wrap; gap: .5rem 1.5rem; margin-top: .75rem; font-size: .8125rem; color: var(--muted); }
+.counts b { color: var(--fg); font-weight: 600; font-variant-numeric: tabular-nums; }
+
+.bar { position: sticky; top: env(safe-area-inset-top, 0px); z-index: 5; background: var(--bg);
+  display: flex; flex-wrap: wrap; gap: .5rem; align-items: center; padding-block: 1rem; margin-top: 1.25rem; border-bottom: 1px solid var(--line); }
+body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-area-inset-top, 0px); z-index: 10; background: var(--bg); }
+.seg { display: inline-flex; background: var(--fill); border-radius: .625rem; padding: 3px; }
+.seg button { border: 0; background: transparent; color: var(--muted); font: 500 .8125rem var(--font); padding: .35rem .8rem; border-radius: .5rem; cursor: pointer; }
+.seg button[aria-pressed="true"] { background: var(--card); color: var(--fg); box-shadow: 0 1px 0 0 rgb(0 0 0 / .06), 0 0 0 1px var(--line); }
+.search { flex: 1 1 14rem; min-width: 0; height: 2.25rem; border: 1px solid var(--line); border-radius: .5rem; background: var(--card);
+  color: var(--fg); font: .875rem var(--font); padding: 0 .75rem; }
+.btn { height: 2.25rem; border: 1px solid var(--line); background: var(--card); color: var(--fg); border-radius: .5rem; padding: 0 .75rem; font: 500 .8125rem var(--font); cursor: pointer; }
+.btn:hover, .seg button:hover { color: var(--fg); }
+:is(button, input):focus-visible { outline: 2px solid var(--lead); outline-offset: 2px; }
+
+.legend { display: flex; flex-wrap: wrap; gap: .4rem 1.1rem; padding-block: .75rem; font-size: .75rem; color: var(--muted); }
+.legend span { display: inline-flex; align-items: center; gap: .4rem; }
+.mode-note { font-size: .8125rem; color: var(--muted); margin: .25rem 0 0; max-width: 44rem; }
+
+/* Tree */
+ul.tree, ul.tree ul { list-style: none; margin: 0; padding: 0; }
+ul.tree ul { margin-left: .85rem; padding-left: 1.1rem; border-left: 1px solid var(--line); }
+li { position: relative; }
+ul.tree ul > li::before { content: ""; position: absolute; left: -1.1rem; top: 1.05rem; width: .85rem; border-top: 1px solid var(--line); }
+ul.tree ul > li:last-child::after { content: ""; position: absolute; left: -1.15rem; top: 1.1rem; bottom: 0; width: 3px; background: var(--bg); }
+.row { display: flex; align-items: flex-start; gap: .5rem; padding: .3rem .4rem; border-radius: .5rem; min-width: 0; }
+.row:hover { background: var(--fill); }
+.tog { flex: none; width: 1.4rem; height: 1.4rem; margin-top: .05rem; border: 0; border-radius: .375rem; background: transparent; color: var(--muted); cursor: pointer; display: grid; place-items: center; }
+.tog svg { transition: transform .15s; }
+li.closed > .row .tog svg { transform: rotate(-90deg); }
+li.closed > ul { display: none; }
+.tog.leaf { visibility: hidden; }
+.body { min-width: 0; flex: 1; display: flex; flex-wrap: wrap; align-items: baseline; gap: .25rem .5rem; }
+.name { font-weight: 500; }
+.k-root > .row .name { font-size: 1.125rem; font-weight: 700; letter-spacing: -.01em; }
+.k-page > .row .name, .k-tab > .row .name { font-weight: 600; }
+.k-section > .row .name { font-weight: 500; }
+.k-feature > .row .name { font-weight: 400; }
+.dot { flex: none; width: .55rem; height: .55rem; border-radius: 50%; margin-top: .55rem; }
+.dot.root { background: var(--fg); border-radius: .15rem; }
+.dot.tab, .dot.page { background: var(--lead); border-radius: .15rem; }
+.dot.section { background: var(--card); border: 2px solid var(--lead); }
+.dot.feature { background: var(--muted); width: .4rem; height: .4rem; margin-top: .6rem; }
+.dot.shell { background: var(--warn-d); border-radius: .15rem; }
+.code { font: 500 .75rem var(--mono); color: var(--lead); background: var(--lead-soft); padding: .05rem .4rem; border-radius: .3rem; white-space: nowrap; }
+.file { font: .75rem var(--mono); color: var(--muted); }
+.note { flex-basis: 100%; font-size: .8125rem; color: var(--muted); }
+.ui { flex-basis: 100%; display: flex; flex-wrap: wrap; gap: .3rem; }
+.ui span { font: .6875rem var(--mono); color: var(--muted); border: 1px solid var(--line); border-radius: .3rem; padding: 0 .35rem; }
+.pill { font-size: .6875rem; font-weight: 600; border-radius: .375rem; padding: .05rem .4rem; white-space: nowrap; }
+.pill.tab { background: var(--info-l); color: var(--info-d); }
+.pill.new { background: var(--ok-l); color: var(--ok-d); }
+.pill.phone { background: var(--warn-l); color: var(--warn-d); }
+mark { background: var(--mark); color: inherit; border-radius: .2rem; padding: 0 .1rem; }
+li.hide { display: none; }
+.empty { padding: 2rem 0; color: var(--muted); }
+footer { margin-top: 2.5rem; font-size: .8125rem; color: var(--muted); border-top: 1px solid var(--line); padding-top: 1rem; }
+@media (max-width: 30rem) { ul.tree ul { margin-left: .5rem; padding-left: .8rem; } ul.tree ul > li::before { left: -.8rem; width: .6rem; } ul.tree ul > li:last-child::after { left: -.85rem; } }
+@media (prefers-reduced-motion: reduce) { .tog svg { transition: none; } }
+</style>
+
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>PenguinFin feature tree</h1>
+    <p class="lede">Every user-facing feature in PenguinFin 1.9.0, from the app shell down to single actions, with the Rust component that draws it and the design-system parts it is built from. Switch to <b>Phone</b> to see where each feature lands in the planned iPhone and Android apps.</p>
+    <div class="counts" id="counts"></div>
+  </header>
+
+  <div class="bar" role="toolbar" aria-label="Tree controls">
+    <div class="seg" role="group" aria-label="Layout">
+      <button type="button" id="m-desktop" aria-pressed="true">Desktop</button>
+      <button type="button" id="m-phone" aria-pressed="false">Phone (planned)</button>
+    </div>
+    <input id="q" class="search" type="search" placeholder="Find a feature or component, e.g. bucket, DebtCard" aria-label="Find a feature or component">
+    <button type="button" class="btn" id="expand">Expand all</button>
+    <button type="button" class="btn" id="collapse">Collapse</button>
+  </div>
+  <p class="mode-note" id="modenote"></p>
+  <div class="legend" aria-hidden="true">
+    <span><i class="dot page"></i>Page or tab</span>
+    <span><i class="dot section"></i>Card or section</span>
+    <span><i class="dot feature"></i>Feature or action</span>
+    <span><i class="dot shell"></i>App shell</span>
+    <span><span class="code">DebtCard</span>Rust component</span>
+    <span><span class="pill new">New in 1.9</span>Latest release</span>
+  </div>
+
+  <ul class="tree" id="tree"></ul>
+  <p class="empty" id="empty" hidden>No feature matches that search.</p>
+
+  <footer>Built from the PenguinFin source at the 1.9.0 release (<span class="file">src/app.rs</span>, <span class="file">src/views/*.rs</span>, <span class="file">src/widgets.rs</span>). Phone placement follows the Mobile plan in the PenguinFin Design System and is not built yet.</footer>
+</div>
+
+<script>
+// k: root | shell | page | section | feature.  c: Rust component.  f: file.  ui: design-system parts.  tab: phone tab.  n: note.
+const F = (t, extra = {}) => ({ k: 'feature', t, ...extra });
+const PAGES = [
+ { k: 'page', t: 'Dashboard', c: 'Dashboard', f: 'src/views/dashboard.rs', tab: 'Home', ui: ['PageHeader', 'Stat'], ch: [
+   { k: 'section', t: 'Summary tiles', ui: ['Stat'], ch: [F('Net worth, split into cash, investments, retirement and debt'), F('Monthly income'), F('Bills + expenses'), F('Left over / month, after savings and the debt plan'), F('Savings rate'), F('Paycheck + employer retirement contributions'), F('Net worth in N years')] },
+   { k: 'section', t: 'Projected net worth', ui: ['Card', 'LineChart', 'ChartSkeleton'], ch: [F('Net worth, retirement, investments, cash and debt lines'), F('Debt-free date in the description'), F('Warning when cash runs short')] },
+   { k: 'section', t: 'Debt payoff summary', c: 'DebtOverview', ui: ['Card', 'StackedChart'], ch: [F('Owed now, paid each month, debt-free date, interest to pay'), F('Each balance month by month')] },
+   { k: 'section', t: 'Next 30 days', ui: ['Card', 'Badge'], ch: [F('Upcoming income, bills and expenses by date'), F('Autopay and kind badges')] },
+   { k: 'section', t: 'Monthly spending by category', ui: ['Card', 'Progress'] },
+   { k: 'section', t: 'Empty state', ui: ['EmptyState', 'Button'], ch: [F('Load sample data'), F('Add accounts')] },
+ ]},
+ { k: 'page', t: 'Income', c: 'FlowsPage', f: 'src/views/flows.rs', tab: 'Cash flow', n: 'One component serves Income, Bills and Recurring expenses.', ui: ['PageHeader', 'Card'], ch: [
+   { k: 'section', t: 'Income list', c: 'FlowRow', ui: ['Card', 'Badge', 'Button'], ch: [F('Amount, frequency and next date per item'), F('Edit and delete with in-place confirm')] },
+   { k: 'section', t: 'Add or edit income', c: 'FlowFormCard', ui: ['Field', 'Input', 'NativeSelect', 'Switch'], ch: [F('Name, amount, how often (once to yearly)'), F('Next or first pay date'), F('Deposited to an account'), F('Yearly raise %'), F('Optional end date'), F('Category and notes')] },
+ ]},
+ { k: 'page', t: 'Bills', c: 'FlowsPage', f: 'src/views/flows.rs', tab: 'Cash flow', ui: ['PageHeader', 'Card'], ch: [
+   { k: 'section', t: 'Bills list', c: 'FlowRow', ui: ['Card', 'Badge'], ch: [F('Autopay badge'), F('Paid-from account and bucket')] },
+   { k: 'section', t: 'Add or edit a bill', c: 'FlowFormCard', ui: ['Field', 'Input', 'NativeSelect', 'Switch'], ch: [F('Due date (first or next)'), F('Paid automatically (autopay)'), F('Paid from Account › Bucket'), F('Yearly change %, defaulting to inflation'), F('Last payment on or before an end date')] },
+ ]},
+ { k: 'page', t: 'Recurring expenses', c: 'FlowsPage', f: 'src/views/flows.rs', tab: 'Cash flow', ui: ['PageHeader', 'Card'], ch: [
+   { k: 'section', t: 'Expenses list', c: 'FlowRow', ui: ['Card', 'Badge'] },
+   { k: 'section', t: 'Add or edit an expense', c: 'FlowFormCard', ui: ['Field', 'Input', 'NativeSelect'], ch: [F('Category (food, transport, health…)'), F('Starts on, how often, yearly change'), F('Paid from Account › Bucket')] },
+ ]},
+ { k: 'page', t: 'Debt payoff', c: 'DebtsPage', f: 'src/views/debts.rs', tab: 'Plan', ui: ['PageHeader', 'Stat'], ch: [
+   { k: 'section', t: 'Summary tiles', ui: ['Stat'], ch: [F('Total debt'), F('Interest this month'), F('Debt-free date'), F('Total interest and interest saved vs. minimums')] },
+   { k: 'section', t: 'Your monthly budget', c: 'BudgetLine', ui: ['Card', 'Separator', 'Field', 'Input'], ch: [F('Income minus bills, expenses and savings = available for debt'), F('Extra toward debt each month, with a "Use $N" suggestion'), F('Left over after the plan')] },
+   { k: 'section', t: 'Strategy', c: 'StrategyButton', ch: [F('Avalanche: highest rate first'), F('Snowball: smallest balance first'), F('Paid-off payments roll into the next debt')] },
+   { k: 'section', t: 'Payoff plan chart', c: 'PayoffChart', ui: ['Card', 'StackedChart'] },
+   { k: 'section', t: 'Debts', c: 'DebtCard', ui: ['Card', 'Badge', 'Button'], ch: [
+     F('Balance, APR, minimum, paying account, interest per month'),
+     F('Payoff date and interest with the plan vs. minimums only'),
+     F('Payment needed to be debt-free in 1, 2 or 3 years'),
+     F('"Gets the extra payment" marker'),
+     F('Set aside payments in a bucket'),
+     F('Log a payment', { c: 'PaymentForm', new: true, ui: ['Field', 'Input', 'NativeSelect', 'Switch'], ch: [F('Amount, date, paid from, note'), F('Also subtract it from the account balance'), F('Future date schedules it instead')] }),
+     F('Planned payments: Log it or Remove', { new: true, ui: ['Badge'] }),
+     F('Recent payments with Undo', { new: true }),
+   ]},
+   { k: 'section', t: 'Payment schedule', c: 'Schedule', ui: ['Card', 'Table'], ch: [F('Month by month, per debt, interest and still owed'), F('Paid-off month marked with a tick'), F('Show all months')] },
+   { k: 'section', t: 'Payment history', c: 'PaymentHistory', new: true, ui: ['Card', 'Table', 'Button'], ch: [F('Every logged one-time payment'), F('Undo restores the debt and account balances')] },
+   { k: 'section', t: 'Add or edit a debt', c: 'DebtFormCard', ui: ['Field', 'Input', 'NativeSelect', 'Switch'], ch: [F('Type, name, balance, APR, minimum payment'), F('Paid from account'), F('Set aside payments in a bucket (on by default)'), F('Live preview of the payoff')] },
+ ]},
+ { k: 'page', t: 'Accounts & investments', c: 'AccountsPage', f: 'src/views/accounts.rs', tab: 'Accounts', ui: ['PageHeader', 'Stat'], ch: [
+   { k: 'section', t: 'Summary tiles', ui: ['Stat'], ch: [F('Net worth'), F('Cash'), F('Investments'), F('Retirement')] },
+   { k: 'section', t: 'Accounts by group', c: 'AccountItem', ui: ['Card', 'Badge', 'Button'], ch: [F('Cash, investments and retirement groups'), F('Balance, return, monthly contribution, employer match'), F('Purpose and minimum balance'), F('Planned debt payments listed under "Pays"')] },
+   { k: 'section', t: 'Buckets', c: 'BucketsPanel', ui: ['Progress', 'Field', 'Input'], ch: [F('Set money aside inside an account, e.g. Rainy day'), F('Monthly top-up and optional target'), F('Debt payment buckets, kept in step with the plan', { ui: ['Badge'] }), F('Deleting a bucket moves its bills back to the account')] },
+   { k: 'section', t: 'Holdings', c: 'Holdings', ui: ['Table', 'Input'], ch: [F('Symbol, shares and price per share', { c: 'HoldingRow' }), F('Cash / uninvested balance')] },
+   { k: 'section', t: 'Add or edit an account', c: 'AccountFormCard', ui: ['Field', 'Input', 'NativeSelect', 'Switch'], ch: [F('Nine account types: checking, savings, brokerage, 401(k), traditional IRA, Roth IRA, HSA, pension, other'), F('Fields change with the type (APY, expected return, contributions, employer match)'), F('Purpose (food, medical, bills…) and minimum balance')] },
+ ]},
+ { k: 'page', t: 'Savings goals', c: 'GoalsPage', f: 'src/views/goals.rs', tab: 'Plan', ui: ['PageHeader', 'Stat'], ch: [
+   { k: 'section', t: 'Summary tiles', ui: ['Stat'], ch: [F('Checking + savings'), F('Reserved (minimums and buckets)'), F('Spendable now'), F('Left over / month')] },
+   { k: 'section', t: 'Reserved money', ui: ['Card'], ch: [F('Minimum balances and bucket money that goals will not touch'), F('Link: set minimums in Accounts')] },
+   { k: 'section', t: 'Planned goals', c: 'GoalRow', ui: ['Card', 'Progress', 'Badge', 'Button'], ch: [F('When each becomes affordable, in priority order'), F('On track or behind a target date, with the monthly gap'), F('Higher and lower priority'), F('Mark as bought')] },
+   { k: 'section', t: 'Bought', c: 'BoughtRow', ch: [F('Move back to planned'), F('Remove')] },
+   { k: 'section', t: 'Spendable cash after planned purchases', c: 'SpendableChart', ui: ['LineChart'] },
+   { k: 'section', t: 'Add or edit a goal', c: 'GoalFormCard', ui: ['Field', 'Input', 'Switch'], ch: [F('Name and price'), F('I want it by a date'), F('Notes')] },
+ ]},
+ { k: 'page', t: 'Projections', c: 'ProjectionsPage', f: 'src/views/projections.rs', tab: 'Plan', ui: ['PageHeader', 'Stat'], ch: [
+   { k: 'section', t: 'Net worth over time', ui: ['Card', 'LineChart'], ch: [F('Years to project'), F("Show in today's dollars (inflation adjusted)"), F('Make default')] },
+   { k: 'section', t: 'What if…', ui: ['Field', 'Input'], ch: [F('Extra income or spending per month'), F('Invest extra per month'), F('Change all returns by %'), F('Compared against the current plan line')] },
+   { k: 'section', t: 'Market context', ui: ['Stat'], n: 'FRED rates and inflation, when a key is set.' },
+   { k: 'section', t: 'Year by year', ui: ['Table'], ch: [F('Income, bills + expenses, saved, balances and debt at year end')] },
+   { k: 'section', t: 'Accounts & buckets', c: 'AccountsBucketsCard', ui: ['StackedChart', 'NativeSelect'], ch: [F('One account split into its buckets over time'), F('Unallocated money and the minimum-balance line')] },
+ ]},
+ { k: 'page', t: 'Settings & data', c: 'SettingsPage', f: 'src/views/settings.rs', tab: 'More', ui: ['PageHeader', 'Card'], ch: [
+   { k: 'section', t: 'Preferences & interface', ui: ['Field', 'Input', 'Switch'], ch: [F('Currency symbol'), F('Inflation % per year'), F('Default projection length'), F('Dark mode'), F('Interface size: Auto, S, M, L, XL'), F('Natural scrolling')] },
+   { k: 'section', t: 'Your data', ui: ['Button'], ch: [F('Database file location'), F('Export backup (JSON)'), F('Restore from a backup'), F('Replace with sample data'), F('Erase all data')] },
+   { k: 'section', t: 'Economic data (FRED)', c: 'FredCard', ui: ['Field', 'Input', 'Stat'], ch: [F('API key, stored only on this computer'), F('Sync on launch and Sync now'), F('Follow FRED inflation in projections')] },
+   { k: 'section', t: 'About', ch: [F('Version and licences')] },
+ ]},
+];
+const SHELL = { k: 'shell', t: 'App shell', c: 'Shell', f: 'src/app.rs', n: 'Around every page.', ch: [
+  F('Sidebar with nine pages', { ui: ['SideNav', 'Icon'], phone: 'Becomes the five-tab bar' }),
+  F('Text size control and Ctrl + / − / 0', { c: 'UiSizeControl', phone: 'Replaced by the OS text size' }),
+  F('Toasts after every save', { ui: ['Toast'] }),
+  F('Boot skeleton while the window opens', { f: 'src/main.rs', ui: ['LoadingBlock'] }),
+  F('Pages open at the top', { phone: 'Tabs keep their scroll position instead' }),
+]};
+const TABS = [
+  ['Home', 'Dashboard'], ['Cash flow', 'Segmented: Income, Bills, Expenses'], ['Accounts', 'Accounts, buckets, holdings'],
+  ['Plan', 'Segmented: Debt, Goals, Projections'], ['More', 'Settings, data, FRED, About'],
+];
+const PHONE_SHELL = { k: 'shell', t: 'Phone shell', n: 'Planned. See the Mobile section of the design system.', ch: [
+  F('Bottom tab bar with five tabs', { ui: ['MobileScreens', 'Icon'] }),
+  F('Top bar: large title on iPhone, app bar on Android'),
+  F('Forms open as sheets', { ui: ['MobileSheet'] }),
+  F('Add: top-bar button on iPhone, floating button on Android'),
+  F('Swipe or long-press to delete'),
+  F('Face ID / fingerprint lock, hidden balances in the app switcher'),
+]};
+
+function clone(n) { return JSON.parse(JSON.stringify(n)); }
+function build(mode) {
+  if (mode === 'desktop') return { k: 'root', t: 'PenguinFin', n: 'Desktop app for Linux and Windows', ch: [clone(SHELL), ...PAGES.map(clone)] };
+  const tabs = TABS.map(([t, note]) => ({ k: 'page', t, n: note, isTab: true, ch: PAGES.filter(p => p.tab === t).map((p, i, all) => { const c = clone(p); c.k = 'section'; c.fromPage = true; c.seg = all.length > 1; return c; }) }));
+  return { k: 'root', t: 'PenguinFin', n: 'Planned iPhone and Android apps', ch: [clone(PHONE_SHELL), ...tabs] };
+}
+
+const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+const chev = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>';
+let mode = 'desktop', query = '';
+try { mode = localStorage.getItem('pf-tree-mode') === 'phone' ? 'phone' : 'desktop'; } catch (e) {}
+
+function text(n) { return [n.t, n.c, n.f, n.n, n.phone, n.tab, ...(n.ui || [])].filter(Boolean).join(' ').toLowerCase(); }
+function hl(s) {
+  s = esc(s); if (!query) return s;
+  const i = s.toLowerCase().indexOf(esc(query).toLowerCase());
+  return i < 0 ? s : s.slice(0, i) + '<mark>' + s.slice(i, i + esc(query).length) + '</mark>' + s.slice(i + esc(query).length);
+}
+function node(n, depth) {
+  const li = document.createElement('li');
+  const kind = n.k === 'page' && n.isTab ? 'tab' : n.k;
+  li.className = 'k-' + kind + (depth >= 2 && n.ch && n.k !== 'section' && n.k !== 'page' ? ' closed' : '');
+  if (n.k === 'section' && depth >= 2 && n.ch && n.ch.length > 3) li.classList.add('closed');
+  if (n.fromPage) li.classList.add('closed');
+  li.dataset.text = text(n);
+  const has = n.ch && n.ch.length;
+  const bits = [`<span class="name">${hl(n.t)}</span>`];
+  if (n.c) bits.push(`<span class="code">${hl(n.c)}</span>`);
+  if (n.new) bits.push('<span class="pill new">New in 1.9</span>');
+  if (mode === 'desktop' && n.tab) bits.push(`<span class="pill tab" title="Planned phone tab">Phone: ${esc(n.tab)}</span>`);
+  if (mode === 'phone' && n.seg) bits.push('<span class="pill phone">segment</span>');
+  if (n.f) bits.push(`<span class="file">${hl(n.f)}</span>`);
+  if (n.n) bits.push(`<span class="note">${hl(n.n)}</span>`);
+  if (mode === 'phone' && n.phone) bits.push(`<span class="note">On phones: ${hl(n.phone)}</span>`);
+  if (mode === 'desktop' && n.phone) bits.push(`<span class="note">Phone: ${hl(n.phone)}</span>`);
+  if (n.ui && n.ui.length) bits.push(`<span class="ui" aria-label="Built from">${n.ui.map(u => `<span>${hl(u)}</span>`).join('')}</span>`);
+  li.innerHTML = `<div class="row"><button type="button" class="tog${has ? '' : ' leaf'}" aria-label="Show or hide ${esc(n.t)}" ${has ? '' : 'tabindex="-1" aria-hidden="true"'}>${chev}</button><i class="dot ${kind}"></i><div class="body">${bits.join('')}</div></div>`;
+  if (has) {
+    const tog = li.querySelector('.tog');
+    tog.setAttribute('aria-expanded', String(!li.classList.contains('closed')));
+    tog.addEventListener('click', () => { li.classList.toggle('closed'); tog.setAttribute('aria-expanded', String(!li.classList.contains('closed'))); });
+    const ul = document.createElement('ul');
+    n.ch.forEach(c => ul.appendChild(node(c, depth + 1)));
+    li.appendChild(ul);
+  }
+  return li;
+}
+function count(n, acc) { acc[n.k] = (acc[n.k] || 0) + 1; if (n.c) acc.comp.add(n.c); (n.ch || []).forEach(c => count(c, acc)); return acc; }
+function render() {
+  const root = build(mode);
+  const tree = document.getElementById('tree'); tree.innerHTML = '';
+  tree.appendChild(node(root, 0));
+  const a = count({ k: 'x', ch: [SHELL, ...PAGES] }, { comp: new Set() });
+  document.getElementById('counts').innerHTML =
+    `<span><b>${PAGES.length}</b> pages</span><span><b>${a.section}</b> cards and sections</span><span><b>${a.feature}</b> features and actions</span><span><b>${a.comp.size}</b> Rust components</span><span><b>5</b> planned phone tabs</span>`;
+  document.getElementById('modenote').textContent = mode === 'desktop'
+    ? 'Grouped by the desktop sidebar. Each page shows the phone tab it moves to.'
+    : 'Grouped by the five planned phone tabs. Pages that share a tab become segments of it.';
+  document.getElementById('m-desktop').setAttribute('aria-pressed', String(mode === 'desktop'));
+  document.getElementById('m-phone').setAttribute('aria-pressed', String(mode === 'phone'));
+  filter();
+}
+function filter() {
+  const q = query.trim().toLowerCase();
+  let any = false;
+  const walk = li => {
+    const kids = [...li.querySelectorAll(':scope > ul > li')];
+    let childHit = false;
+    kids.forEach(k => { if (walk(k)) childHit = true; });
+    const self = !q || li.dataset.text.includes(q);
+    const show = self || childHit;
+    li.classList.toggle('hide', !show);
+    if (q && childHit) { li.classList.remove('closed'); const t = li.querySelector(':scope > .row .tog'); if (t) t.setAttribute('aria-expanded', 'true'); }
+    if (q && self && !childHit) kids.forEach(k => k.classList.remove('hide'));
+    if (show) any = true;
+    return show;
+  };
+  const top = document.querySelector('#tree > li');
+  if (top) walk(top);
+  document.getElementById('empty').hidden = any;
+}
+function setAll(open) {
+  document.querySelectorAll('#tree li').forEach(li => {
+    const t = li.querySelector(':scope > .row .tog:not(.leaf)'); if (!t) return;
+    if (li.classList.contains('k-root')) return;
+    li.classList.toggle('closed', !open); t.setAttribute('aria-expanded', String(open));
+  });
+}
+document.getElementById('m-desktop').addEventListener('click', () => { mode = 'desktop'; try { localStorage.setItem('pf-tree-mode', mode); } catch (e) {} render(); });
+document.getElementById('m-phone').addEventListener('click', () => { mode = 'phone'; try { localStorage.setItem('pf-tree-mode', mode); } catch (e) {} render(); });
+document.getElementById('expand').addEventListener('click', () => setAll(true));
+document.getElementById('collapse').addEventListener('click', () => setAll(false));
+document.getElementById('q').addEventListener('input', e => { query = e.target.value; render(); });
+render();
+</script>
+
+</body>
+</html>
