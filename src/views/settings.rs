@@ -7,7 +7,8 @@ use crate::ui::switch::Switch;
 use crate::views::dashboard::PageHeader;
 use crate::widgets::*;
 use dioxus::prelude::*;
-use penguinfin::db::{export_json, import_json};
+use penguinfin::db::export_json;
+use penguinfin::export::{self as pfexport, Imported};
 use penguinfin::model::{AppData, UiScale};
 use std::path::PathBuf;
 
@@ -27,10 +28,11 @@ fn latest_backup() -> Option<PathBuf> {
         .filter(|p| {
             p.file_name()
                 .and_then(|n| n.to_str())
-                .is_some_and(|n| n.starts_with("penguinfin-backup-") && n.ends_with(".json"))
+                .is_some_and(|n| n.starts_with("penguinfin-") && (n.ends_with(".json") || n.ends_with(".pfexport")))
         })
         .collect();
-    files.sort();
+    // Newest first by time written, whichever kind of file it is.
+    files.sort_by_key(|p| std::fs::metadata(p).and_then(|m| m.modified()).ok());
     files.pop()
 }
 
@@ -45,7 +47,8 @@ pub fn SettingsPage() -> Element {
     let mut years = use_signal(|| settings.projection_years.to_string());
     let mut import_path = use_signal(|| latest_backup().map(|p| p.display().to_string()).unwrap_or_default());
     let mut confirm_erase = use_signal(|| false);
-    let mut confirm_import = use_signal(|| false);
+    // A file that was read and is waiting for "Replace my data".
+    let mut pending_import = use_signal(|| None::<Imported>);
     let db_path = store.db_path();
 
     let s_dark = settings.clone();
@@ -81,13 +84,34 @@ pub fn SettingsPage() -> Element {
         }
     };
 
-    let do_import = move |_| {
-        confirm_import.set(false);
-        let p = PathBuf::from(import_path.read().trim());
-        match import_json(&p) {
-            Ok(d) => store.mutate("Backup restored", |db| db.replace_all(&d)),
-            Err(e) => store.notify(format!("Could not read backup: {e}"), true),
+    let export_v2 = move |_| {
+        let data = store.data.read().clone();
+        let path = backup_dir().join(format!(
+            "penguinfin-{}.{}",
+            chrono::Local::now().format("%Y%m%d-%H%M%S"),
+            pfexport::EXTENSION
+        ));
+        match pfexport::write_export(&data, &path, env!("CARGO_PKG_VERSION")) {
+            Ok(()) => {
+                import_path.set(path.display().to_string());
+                store.notify(format!("Export saved to {}", path.display()), false);
+            }
+            Err(e) => store.notify(format!("Export failed: {e}"), true),
         }
+    };
+
+    // Read the file first, so the confirmation can say what it holds.
+    let check_import = move |_| {
+        let p = PathBuf::from(import_path.read().trim());
+        match pfexport::read_file(&p) {
+            Ok(found) => pending_import.set(Some(found)),
+            Err(e) => store.notify(format!("Could not read that file: {e}"), true),
+        }
+    };
+
+    let do_import = move |_| {
+        let Some(found) = pending_import.take() else { return };
+        store.mutate("Data restored", |db| db.replace_all(&found.data));
     };
 
     rsx! {
@@ -186,20 +210,36 @@ pub fn SettingsPage() -> Element {
                 Separator {}
                 div { class: "flex flex-col gap-2",
                     div { class: "text-sm font-medium", "Backup" }
-                    p { class: "text-xs text-muted-foreground", "Saves a JSON copy of all data to {backup_dir().display()}." }
-                    div { Button { variant: ButtonVariant::Outline, onclick: export, "Export backup" } }
+                    p { class: "text-xs text-muted-foreground", "Saves a copy of all data to {backup_dir().display()}." }
+                    div { class: "flex flex-wrap gap-2",
+                        Button { variant: ButtonVariant::Outline, onclick: export, "Export backup" }
+                        Button { variant: ButtonVariant::Outline, onclick: export_v2, "Export for PenguinFin 2" }
+                    }
+                    p { class: "text-xs text-muted-foreground",
+                        "The PenguinFin 2 export is a checked file that PenguinFin 2 imports on any computer or phone. Your FRED key is never included." }
                 }
                 div { class: "flex flex-col gap-2",
                     div { class: "text-sm font-medium", "Restore" }
-                    p { class: "text-xs text-muted-foreground", "Replaces all current data with the contents of a backup file." }
+                    p { class: "text-xs text-muted-foreground",
+                        "Replaces all current data with a backup (.json), a PenguinFin 2 export (.pfexport) or a penguinfin.db copied from another computer." }
                     div { class: "flex gap-2",
-                        Input { value: import_path(), placeholder: "/home/you/Downloads/penguinfin-backup-….json",
-                            oninput: move |e: FormEvent| import_path.set(e.value()) }
-                        if confirm_import() {
-                            Button { variant: ButtonVariant::Destructive, onclick: do_import, "Replace my data" }
-                            Button { variant: ButtonVariant::Ghost, onclick: move |_| confirm_import.set(false), "Cancel" }
-                        } else {
-                            Button { variant: ButtonVariant::Outline, onclick: move |_| confirm_import.set(true), "Restore…" }
+                        // Keyed by the path so a new export shows up here (inputs are uncontrolled).
+                        for v in [import_path()] {
+                            Input { key: "{v}", value: v.clone(), placeholder: "/home/you/Downloads/penguinfin-backup-….json",
+                                oninput: move |e: FormEvent| { pending_import.set(None); import_path.set(e.value()) } }
+                        }
+                        if pending_import.read().is_none() {
+                            Button { variant: ButtonVariant::Outline, onclick: check_import, "Restore…" }
+                        }
+                    }
+                    if let Some(found) = pending_import() {
+                        div { class: "flex flex-col gap-2 rounded-md border bg-muted/40 p-3",
+                            p { class: "text-sm",
+                                "This file holds {pfexport::summary(&found.counts())}. Restoring replaces everything you have now." }
+                            div { class: "flex gap-2",
+                                Button { size: ButtonSize::Sm, variant: ButtonVariant::Destructive, onclick: do_import, "Replace my data" }
+                                Button { size: ButtonSize::Sm, variant: ButtonVariant::Ghost, onclick: move |_| pending_import.set(None), "Cancel" }
+                            }
                         }
                     }
                 }

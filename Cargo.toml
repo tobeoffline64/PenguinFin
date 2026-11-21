@@ -1,6 +1,6 @@
 [package]
 name = "penguinfin"
-version = "1.9.0"
+version = "1.10.0"
 edition = "2024"
 description = "Offline personal finance planner: recurring expenses, bills, income and investment projections"
 license = "MIT"
@@ -10,7 +10,8 @@ license = "MIT"
 dioxus = { version = "=0.7.9", default-features = false, features = ["desktop", "launch", "macro", "html", "signals", "hooks", "document"] }
 tw_merge = { version = "0.1" }
 strum = { version = "0.28", features = ["derive"] }
-rusqlite = { version = "0.32", features = ["bundled"] }
+rusqlite = { version = "0.32", features = ["bundled", "backup"] }
+sha2 = "0.10"
 chrono = { version = "0.4", default-features = false, features = ["clock", "std", "serde"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"

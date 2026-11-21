@@ -34,6 +34,12 @@ curl -fL -o /tmp/penguinfin.flatpak https://github.com/tobeoffline64/penguinfin/
 flatpak install --user -y --reinstall /tmp/penguinfin.flatpak
 ```
 
+## New in 1.10.0
+- **Export for PenguinFin 2.** Settings › Your data has a new button that saves a `.pfexport` file: a checked copy of all your data (accounts, buckets, bills, income, debts and payment history, goals, settings) that PenguinFin 2 will import on any computer or phone. It works as a backup today, and never includes your FRED key.
+- **Safer restore.** Restore now accepts a backup, an export, or a `penguinfin.db` copied from another computer, and shows what the file holds before it replaces anything. Damaged exports are refused.
+- PenguinFin 1.x now refuses to open a database saved by a newer version, so it can't damage data after you move to PenguinFin 2.
+- Fix: after exporting, the restore box now shows the file you just saved.
+
 ## New in 1.9.0
 - **Log one-time payments toward a debt.** Each debt on the Debt payoff page has a **Log a payment** button: enter the amount, date, the account it came from and an optional note (e.g. "tax refund"). The debt's balance drops right away, and the money is subtracted from that account too (switch that off if you've already updated the account's balance). The payoff plan, debt-free date, buckets and dashboard update immediately.
 - **Schedule a future payment.** Pick a date in the future and the payment is planned instead: your payoff plan, schedule and projections include it now (paid from the chosen account in that month). Once the date passes, the debt asks "Did you make it?" with **Log it** or **Remove**.

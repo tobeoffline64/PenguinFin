@@ -43,7 +43,8 @@ pub fn default_db_path() -> PathBuf {
     data_dir().join("penguinfin.db")
 }
 
-const SCHEMA_VERSION: i64 = 7;
+/// The database format this version writes (`PRAGMA user_version`).
+pub const SCHEMA_VERSION: i64 = 7;
 
 pub struct Db {
     conn: Connection,
@@ -70,6 +71,28 @@ impl Db {
         Ok(db)
     }
 
+    /// Open a copy of another database file in memory, upgraded to this version's format.
+    /// The file itself is only read, never changed (e.g. a `penguinfin.db` from another computer).
+    pub fn open_copy(path: &Path) -> Result<Self> {
+        use rusqlite::OpenFlags;
+        let src = Connection::open_with_flags(path, OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX)
+            .map_err(e)?;
+        let mut conn = Connection::open_in_memory().map_err(e)?;
+        {
+            let backup = rusqlite::backup::Backup::new(&src, &mut conn).map_err(e)?;
+            backup.run_to_completion(256, std::time::Duration::ZERO, None).map_err(e)?;
+        }
+        conn.execute_batch("PRAGMA foreign_keys = ON;").map_err(e)?;
+        let db = Db { conn, path: path.to_path_buf() };
+        db.migrate()?;
+        Ok(db)
+    }
+
+    /// The data format of the open database.
+    pub fn schema_version(&self) -> Result<i64> {
+        self.conn.query_row("PRAGMA user_version", [], |r| r.get(0)).map_err(e)
+    }
+
     #[cfg(test)]
     pub fn open_in_memory() -> Result<Self> {
         let conn = Connection::open_in_memory().map_err(e)?;
@@ -85,6 +108,11 @@ impl Db {
 
     fn migrate(&self) -> Result<()> {
         let version: i64 = self.conn.query_row("PRAGMA user_version", [], |r| r.get(0)).map_err(e)?;
+        if version > SCHEMA_VERSION {
+            return Err(format!(
+                "this data file was saved by a newer PenguinFin (data format {version}; this version reads up to {SCHEMA_VERSION}). Open it with PenguinFin 2, or restore a backup"
+            ));
+        }
         if version < 1 {
             self.conn
                 .execute_batch(

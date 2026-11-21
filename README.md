@@ -54,7 +54,7 @@ Built in **Rust** with **[Dioxus](https://dioxuslabs.com) desktop** and componen
 - **Projections**: 1–80 years, nominal or inflation-adjusted ("today's dollars"), milestone cards,
   a year-by-year table, a warning when cash would run short, and **what-if** scenarios (extra income,
   extra spending, extra investing, lower/higher returns) that are not saved.
-- **Settings & data**: currency symbol, inflation, dark mode, JSON backup/restore (in `~/Downloads`),
+- **Settings & data**: currency symbol, inflation, dark mode, JSON backup/restore and the PenguinFin 2 export (in `~/Downloads`),
   sample data, erase all.
 - **Interface**: UI size *Auto* (scales with the window) or S / M / L / XL, from the sidebar, Settings,
   or Ctrl + / Ctrl − / Ctrl 0. The layout reflows to the space it has, and the sidebar collapses to icons
@@ -188,6 +188,7 @@ For quick UI work you can skip flatpak entirely: `cargo run` builds a debug bina
 | `src/model.rs` | Domain types, schedule math (occurrence dates) |
 | `src/projection.rs` | Monthly projection engine, upcoming payments, category totals |
 | `src/db.rs` | SQLite schema, migrations, CRUD, JSON backup |
+| `src/export.rs` | `.pfexport` files and importing any backup, export or database file |
 | `src/goals.rs` | Savings-goal planner (affordability under minimum balances) |
 | `src/fred.rs` | FRED API client: indicators, parallel fetch, parsing |
 | `src/prices.rs` | Price provider trait (manual in v1) |
