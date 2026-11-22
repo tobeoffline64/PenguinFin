@@ -11,6 +11,7 @@
     "allow-cancel-import",
     "allow-confirm-import",
     "allow-save-settings",
+    "allow-apply",
     "allow-set-fred-key",
     "allow-remove-fred-key",
     "allow-save-fred-options",

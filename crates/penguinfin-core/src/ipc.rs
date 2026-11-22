@@ -92,3 +92,30 @@ pub struct SyncOutcome {
     pub message: String,
     pub error: bool,
 }
+
+/// Every edit the interface can make, applied by the backend's `apply` command in one
+/// transaction-safe step. The reply is the new `Snapshot`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub enum Change {
+    SaveFlow(crate::model::CashFlow),
+    DeleteFlow(i64),
+    SaveAccount(crate::model::Account),
+    DeleteAccount(i64),
+    SaveHolding(crate::model::Holding),
+    DeleteHolding(i64),
+    SaveBucket(crate::model::Bucket),
+    DeleteBucket(i64),
+    /// Save a debt; `set_aside` adds (or removes) its payment bucket.
+    SaveDebt { debt: crate::debt::Debt, set_aside: bool },
+    DeleteDebt(i64),
+    AddDebtBucket(i64),
+    PlanDebtPayment(crate::debt::DebtPayment),
+    /// Log a one-time payment; `deduct` also takes it out of the paying account.
+    LogDebtPayment { payment: crate::debt::DebtPayment, deduct: bool },
+    DeleteDebtPayment(i64),
+    SaveGoal(crate::model::Goal),
+    DeleteGoal(i64),
+    /// -1 = higher priority, 1 = lower.
+    MoveGoal { id: i64, direction: i32 },
+    SaveSettings(Settings),
+}

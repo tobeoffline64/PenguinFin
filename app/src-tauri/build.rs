@@ -8,6 +8,7 @@ fn main() {
         "cancel_import",
         "confirm_import",
         "save_settings",
+        "apply",
         "set_fred_key",
         "remove_fred_key",
         "save_fred_options",

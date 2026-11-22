@@ -4,7 +4,7 @@
 mod secrets;
 
 use penguinfin_core::fred::{self, FredConfig};
-use penguinfin_core::ipc::{Boot, BootStatus, DbInfo, FredOptions, ImportPreview, KeyStatus, Snapshot, SyncOutcome};
+use penguinfin_core::ipc::{Boot, BootStatus, Change, DbInfo, FredOptions, ImportPreview, KeyStatus, Snapshot, SyncOutcome};
 use penguinfin_core::model::{AppData, Settings};
 use penguinfin_store::db::{Db, default_db_path, export_json};
 use penguinfin_store::export::{self, Imported, Source};
@@ -202,6 +202,34 @@ fn save_settings(settings: Settings, app: AppHandle, state: State<'_, AppState>)
     Ok(snap)
 }
 
+/// Apply one edit from the interface. Debt buckets are brought back in step afterwards.
+#[tauri::command(async)]
+fn apply(change: Change, state: State<'_, AppState>) -> Result<Snapshot> {
+    mutate(&state, |db| match change {
+        Change::SaveFlow(f) => db.save_flow(&f).map(|_| ()),
+        Change::DeleteFlow(id) => db.delete_flow(id),
+        Change::SaveAccount(a) => db.save_account(&a).map(|_| ()),
+        Change::DeleteAccount(id) => db.delete_account(id),
+        Change::SaveHolding(h) => db.save_holding(&h).map(|_| ()),
+        Change::DeleteHolding(id) => db.delete_holding(id),
+        Change::SaveBucket(b) => db.save_bucket(&b).map(|_| ()),
+        Change::DeleteBucket(id) => db.delete_bucket(id),
+        Change::SaveDebt { debt, set_aside } => {
+            let id = db.save_debt(&debt)?;
+            if set_aside { db.add_debt_bucket(id) } else { db.remove_debt_bucket(id) }
+        }
+        Change::DeleteDebt(id) => db.delete_debt(id),
+        Change::AddDebtBucket(id) => db.add_debt_bucket(id),
+        Change::PlanDebtPayment(p) => db.plan_debt_payment(&p).map(|_| ()),
+        Change::LogDebtPayment { payment, deduct } => db.log_debt_payment(&payment, deduct).map(|_| ()),
+        Change::DeleteDebtPayment(id) => db.delete_debt_payment(id),
+        Change::SaveGoal(g) => db.save_goal(&g).map(|_| ()),
+        Change::DeleteGoal(id) => db.delete_goal(id),
+        Change::MoveGoal { id, direction } => db.move_goal(id, direction),
+        Change::SaveSettings(s) => db.save_settings(&s),
+    })
+}
+
 #[tauri::command(async)]
 fn set_fred_key(key: String, state: State<'_, AppState>) -> Result<Snapshot> {
     let key = key.trim();
@@ -331,6 +359,7 @@ pub fn run() {
             cancel_import,
             confirm_import,
             save_settings,
+            apply,
             set_fred_key,
             remove_fred_key,
             save_fred_options,

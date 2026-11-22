@@ -7,7 +7,9 @@ use crate::ui::*;
 use leptos::prelude::*;
 use leptos::task::spawn_local;
 use penguinfin_core::format::money;
-use penguinfin_core::ipc::{Boot, BootStatus, ImportPreview, Snapshot};
+use chrono::NaiveDate;
+use penguinfin_core::ipc::{Boot, BootStatus, Change, ImportPreview, Snapshot};
+use penguinfin_core::model::{AppData, FlowKind};
 use penguinfin_core::model::UiScale;
 use serde::Serialize;
 use std::time::Duration;
@@ -87,6 +89,28 @@ impl Store {
                 Err(e) => store.notify(format!("Could not save: {e}"), true),
             }
         });
+    }
+
+    /// Apply one edit through the backend (`ok` = toast on success, "" for none).
+    pub fn apply(&self, change: Change, ok: &'static str) {
+        self.call("apply", ApplyArg { change }, ok);
+    }
+
+    /// The person's data (tracked: re-runs the caller when it changes).
+    pub fn data(&self) -> AppData {
+        self.snap.with(|s| s.as_ref().map(|s| s.data.clone()).unwrap_or_default())
+    }
+
+    /// The person's data, without tracking (for code already inside a tracked closure).
+    pub fn data_untracked(&self) -> AppData {
+        self.snap.with_untracked(|s| s.as_ref().map(|s| s.data.clone()).unwrap_or_default())
+    }
+
+    /// Today, from the backend's clock (WebAssembly has none of its own).
+    pub fn today(&self) -> NaiveDate {
+        self.boot
+            .with_untracked(|b| b.as_ref().and_then(|b| NaiveDate::parse_from_str(&b.today, "%Y-%m-%d").ok()))
+            .unwrap_or_default()
     }
 
     pub fn currency(&self) -> String {
@@ -195,6 +219,11 @@ enum Screen {
     Failed(String),
     Welcome,
     Main,
+}
+
+#[derive(Serialize)]
+pub struct ApplyArg {
+    pub change: Change,
 }
 
 #[derive(Serialize)]
@@ -370,10 +399,13 @@ fn Shell() -> impl IntoView {
                             {match p {
                                 Page::Overview => view! { <pages::overview::Overview on_nav=Callback::new(move |p| page.set(p)) /> }.into_any(),
                                 Page::Settings => view! { <pages::settings::SettingsPage /> }.into_any(),
-                                other => {
-                                    let label = NAV.iter().find(|(q, _, _)| *q == other).map(|(_, l, _)| *l).unwrap_or("");
-                                    view! { <pages::not_ported::NotPorted title=label /> }.into_any()
-                                }
+                                Page::Goals => view! { <pages::goals::GoalsPage on_nav=Callback::new(move |p| page.set(p)) /> }.into_any(),
+                                Page::Accounts => view! { <pages::accounts::AccountsPage /> }.into_any(),
+                                Page::Projections => view! { <pages::projections::ProjectionsPage /> }.into_any(),
+                                Page::Debts => view! { <pages::debts::DebtsPage /> }.into_any(),
+                                Page::Income => view! { <pages::flows::FlowsPage kind=FlowKind::Income /> }.into_any(),
+                                Page::Bills => view! { <pages::flows::FlowsPage kind=FlowKind::Bill /> }.into_any(),
+                                Page::Expenses => view! { <pages::flows::FlowsPage kind=FlowKind::Expense /> }.into_any(),
                             }}
                         </div>
                     </main>

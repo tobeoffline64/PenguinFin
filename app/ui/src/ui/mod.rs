@@ -19,6 +19,7 @@ pub enum ButtonVariant {
     Outline,
     Secondary,
     Ghost,
+    Link,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Default)]
@@ -27,6 +28,7 @@ pub enum ButtonSize {
     Default,
     Sm,
     IconSm,
+    IconXs,
 }
 
 impl ButtonVariant {
@@ -37,6 +39,7 @@ impl ButtonVariant {
             Self::Outline => "border bg-background shadow-xs hover:bg-accent hover:text-accent-foreground dark:bg-input/30 dark:border-input dark:hover:bg-input/5",
             Self::Secondary => "bg-secondary text-secondary-foreground shadow-xs hover:bg-secondary/80",
             Self::Ghost => "hover:bg-accent hover:text-accent-foreground dark:hover:bg-accent/50",
+            Self::Link => "text-primary underline-offset-4 hover:underline",
         }
     }
 }
@@ -47,6 +50,7 @@ impl ButtonSize {
             Self::Default => "h-9 px-4 py-2 has-[>svg]:px-3",
             Self::Sm => "h-8 rounded-md gap-1.5 px-3 has-[>svg]:px-2.5",
             Self::IconSm => "size-8 rounded-md",
+            Self::IconXs => "size-6 rounded-md",
         }
     }
 }
@@ -60,6 +64,8 @@ pub fn Button(
     #[prop(into, optional)] class: String,
     #[prop(into, optional)] disabled: Signal<bool>,
     #[prop(into, optional)] title: Option<String>,
+    /// Accessible name, for icon-only buttons.
+    #[prop(into, optional)] label: Option<String>,
     #[prop(into, optional)] on_click: Option<Callback<MouseEvent>>,
     children: Children,
 ) -> impl IntoView {
@@ -69,8 +75,8 @@ pub fn Button(
             type="button"
             class=class
             disabled=move || disabled.get()
-            title=title.clone()
-            aria-label=title
+            title=title
+            aria-label=label
             on:click=move |ev| {
                 if let Some(cb) = on_click {
                     cb.run(ev)
@@ -114,6 +120,7 @@ pub fn CardContent(#[prop(into, optional)] class: String, children: Children) ->
 
 // ---------- Input ----------
 
+pub const INPUT_CLASS: &str = INPUT;
 const INPUT: &str = "text-foreground placeholder:text-muted-foreground selection:bg-primary selection:text-primary-foreground dark:bg-input/30 border-input flex h-9 w-full min-w-0 rounded-md border bg-transparent px-3 py-1 text-base shadow-xs transition-[color,box-shadow] outline-none disabled:pointer-events-none disabled:cursor-not-allowed disabled:opacity-50 md:text-sm focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:ring-2 aria-invalid:border-destructive read-only:bg-muted";
 
 /// A controlled text input. In 2.0 typing stays inside the webview, so the 1.x workaround
@@ -215,20 +222,24 @@ pub fn Separator() -> impl IntoView {
 pub enum BadgeVariant {
     #[default]
     Secondary,
+    Muted,
     Success,
     Warning,
     Info,
 }
 
+/// Badges are small (`Sm`) by default, as nearly every use in the app is.
 #[component]
-pub fn Badge(#[prop(optional)] variant: BadgeVariant, children: Children) -> impl IntoView {
+pub fn Badge(#[prop(optional)] variant: BadgeVariant, #[prop(optional)] large: bool, children: Children) -> impl IntoView {
     let v = match variant {
         BadgeVariant::Secondary => "border-transparent bg-secondary text-secondary-foreground",
+        BadgeVariant::Muted => "border-transparent bg-muted text-muted-foreground",
         BadgeVariant::Success => "border-transparent bg-success-light text-success-dark",
         BadgeVariant::Warning => "border-transparent bg-warning-light text-warning-dark",
         BadgeVariant::Info => "border-transparent bg-info-light text-info-dark",
     };
-    let class = tw_merge!("inline-flex items-center font-semibold rounded-md border w-fit px-1.5 py-0.5 text-[0.625rem]", v);
+    let size = if large { "px-2.5 py-0.5 text-xs" } else { "px-1.5 py-0.5 text-[0.625rem]" };
+    let class = tw_merge!("inline-flex items-center font-semibold rounded-md border w-fit", size, v);
     view! { <span class=class>{children()}</span> }
 }
 
@@ -240,6 +251,7 @@ pub fn Stat(
     #[prop(into)] value: String,
     #[prop(into, optional)] sub: Option<String>,
     #[prop(into, optional)] tone: String,
+    #[prop(optional)] loading: bool,
 ) -> impl IntoView {
     let color = match tone.as_str() {
         "good" => "text-success",
@@ -250,8 +262,14 @@ pub fn Stat(
         <Card small=true class="gap-1">
             <CardContent class="flex flex-col gap-1">
                 <span class="text-xs font-medium uppercase tracking-wide text-muted-foreground">{label}</span>
-                <span class=format!("text-2xl font-semibold tabular-nums {color}")>{value}</span>
-                {sub.map(|s| view! { <span class="text-xs text-muted-foreground">{s}</span> })}
+                {if loading {
+                    view! { <LoadingBlock class="h-8 w-32" /><LoadingBlock class="h-3 w-40" /> }.into_any()
+                } else {
+                    view! {
+                        <span class=format!("text-2xl font-semibold tabular-nums {color}")>{value}</span>
+                        {sub.map(|s| view! { <span class="text-xs text-muted-foreground">{s}</span> })}
+                    }.into_any()
+                }}
             </CardContent>
         </Card>
     }
@@ -286,5 +304,163 @@ pub fn LoadingBlock(#[prop(into, optional)] class: String) -> impl IntoView {
         <div class="pf-delayed" aria-busy="true">
             <div class=format!("animate-pulse rounded-md bg-secondary {class}")></div>
         </div>
+    }
+}
+
+// ---------- Progress ----------
+
+#[component]
+pub fn Progress(#[prop(into)] value: Signal<f64>, #[prop(default = 100.0)] max: f64, #[prop(into, optional)] class: String) -> impl IntoView {
+    let pct = move || (value.get() / max * 100.0).clamp(0.0, 100.0);
+    let class = tw_merge!("relative h-2 w-full overflow-hidden rounded-full bg-secondary", class);
+    view! {
+        <div data-name="Progress" role="progressbar" aria-valuemin="0" aria-valuemax=max.to_string() aria-valuenow=move || value.get().to_string() class=class>
+            <div class="flex-1 w-full h-full transition-all duration-300 ease-in-out bg-primary" style=move || format!("transform: translateX(-{}%)", 100.0 - pct())></div>
+        </div>
+    }
+}
+
+// ---------- Table ----------
+
+#[component]
+pub fn TableWrapper(#[prop(into, optional)] class: String, children: Children) -> impl IntoView {
+    let class = tw_merge!("overflow-auto rounded-md border max-h-96", class);
+    view! { <div data-name="TableWrapper" class=class>{children()}</div> }
+}
+
+#[component]
+pub fn Table(children: Children) -> impl IntoView {
+    view! { <table class="w-full max-w-7xl text-sm caption-bottom">{children()}</table> }
+}
+
+#[component]
+pub fn TableHeader(children: Children) -> impl IntoView {
+    view! { <thead class="[&_tr]:border-b sticky top-0 z-10 bg-card">{children()}</thead> }
+}
+
+#[component]
+pub fn TableBody(children: Children) -> impl IntoView {
+    view! { <tbody class="[&_tr:last-child]:border-0">{children()}</tbody> }
+}
+
+#[component]
+pub fn TableRow(#[prop(into, optional)] class: String, children: Children) -> impl IntoView {
+    let class = tw_merge!("border-b transition-colors data-[state=selected]:bg-muted hover:bg-muted/50", class);
+    view! { <tr class=class>{children()}</tr> }
+}
+
+#[component]
+pub fn TableHead(#[prop(into, optional)] class: String, children: Children) -> impl IntoView {
+    let class = tw_merge!("h-10 px-2 text-left align-middle font-medium text-muted-foreground", class);
+    view! { <th class=class>{children()}</th> }
+}
+
+#[component]
+pub fn TableCell(#[prop(into, optional)] class: String, children: Children) -> impl IntoView {
+    let class = tw_merge!("p-4 align-middle", class);
+    view! { <td class=class>{children()}</td> }
+}
+
+// ---------- skeletons ----------
+
+/// Same footprint as a chart (legend row + 3:1 plot).
+#[component]
+pub fn ChartSkeleton() -> impl IntoView {
+    view! {
+        <div class="pf-delayed flex flex-col gap-2" aria-busy="true" aria-label="Calculating">
+            <div class="flex gap-4">
+                <div class="animate-pulse rounded-md h-4 bg-secondary w-20"></div>
+                <div class="animate-pulse rounded-md h-4 bg-secondary w-20"></div>
+                <div class="animate-pulse rounded-md h-4 bg-secondary w-24"></div>
+            </div>
+            <div class="animate-pulse rounded-md aspect-[3/1] w-full bg-secondary"></div>
+        </div>
+    }
+}
+
+// ---------- inputs bound to a field of a form struct ----------
+
+/// A text input showing `get(form)` and writing back with `set`, e.g.
+/// `<FormInput form=form get=|f: &FlowForm| f.name.clone() set=|f: &mut FlowForm, v| f.name = v />`.
+#[component]
+pub fn FormInput<T, G, S>(
+    form: RwSignal<T>,
+    get: G,
+    set: S,
+    #[prop(into, optional)] placeholder: String,
+    #[prop(into, default = "text".to_string())] kind: String,
+    #[prop(into, optional)] inputmode: Option<String>,
+) -> impl IntoView
+where
+    T: Send + Sync + 'static,
+    G: Fn(&T) -> String + Send + Sync + 'static,
+    S: Fn(&mut T, String) + Send + Sync + 'static,
+{
+    view! {
+        <input
+            data-name="Input"
+            type=kind
+            class=INPUT
+            placeholder=placeholder
+            inputmode=inputmode
+            prop:value=move || form.with(|f| get(f))
+            on:input=move |ev| {
+                let v = event_target_value(&ev);
+                form.update(|f| set(f, v))
+            }
+        />
+    }
+}
+
+/// A switch bound to a bool field of a form struct.
+#[component]
+pub fn FormSwitch<T, G, S>(form: RwSignal<T>, get: G, set: S, #[prop(into)] label: String) -> impl IntoView
+where
+    T: Send + Sync + 'static,
+    G: Fn(&T) -> bool + Send + Sync + 'static + Copy,
+    S: Fn(&mut T, bool) + Send + Sync + 'static + Copy,
+{
+    view! {
+        <Switch checked=Signal::derive(move || form.with(|f| get(f))) label=label on_change=move |v| form.update(|f| set(f, v)) />
+    }
+}
+
+/// A row with a title (and optional caption) on the left and a control on the right.
+#[component]
+pub fn SettingRow(#[prop(into)] title: String, #[prop(into, optional)] caption: Option<String>, children: Children) -> impl IntoView {
+    view! {
+        <div class="flex items-start justify-between gap-3">
+            <div class="flex flex-col">
+                <span class="text-sm">{title}</span>
+                {caption.map(|c| view! { <span class="text-xs text-muted-foreground">{c}</span> })}
+            </div>
+            {children()}
+        </div>
+    }
+}
+
+/// Edit and delete icon buttons; delete asks again in place ("Delete" / "Keep").
+#[component]
+pub fn RowActions(#[prop(into)] on_edit: Callback<()>, #[prop(into)] on_delete: Callback<()>, #[prop(into, default = "Edit".to_string())] edit_title: String) -> impl IntoView {
+    let confirm = RwSignal::new(false);
+    move || {
+        let edit_title = edit_title.clone();
+        if confirm.get() {
+            view! {
+                <Button size=ButtonSize::Sm variant=ButtonVariant::Destructive on_click=move |_| { confirm.set(false); on_delete.run(()) }>"Delete"</Button>
+                <Button size=ButtonSize::Sm variant=ButtonVariant::Ghost on_click=move |_| confirm.set(false)>"Keep"</Button>
+            }
+            .into_any()
+        } else {
+            view! {
+                <Button size=ButtonSize::IconSm variant=ButtonVariant::Ghost title=edit_title.clone() label=edit_title on_click=move |_| on_edit.run(())>
+                    <icon::Icon name=icon::IconName::Pencil />
+                </Button>
+                <Button size=ButtonSize::IconSm variant=ButtonVariant::Ghost title="Delete" label="Delete" on_click=move |_| confirm.set(true)>
+                    <icon::Icon name=icon::IconName::Trash />
+                </Button>
+            }
+            .into_any()
+        }
     }
 }
