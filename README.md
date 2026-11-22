@@ -1,3 +1,5 @@
+> **Archived: PenguinFin 1.x (Dioxus).** This branch keeps the 1.x desktop app as it was at 1.10.0. Current development (PenguinFin 2, Tauri + Leptos) is on [`main`](https://github.com/tobeoffline64/PenguinFin/tree/main). Fixes pushed here with a new version in `Cargo.toml` are still released by this branch's workflow.
+
 # PenguinFin
 
 Offline personal finance planner for **Linux and Windows**. Track income, bills and recurring

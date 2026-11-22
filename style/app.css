@@ -1,7 +1,6 @@
 /* Theme tokens taken from rust-ui/ui (MIT). Build: npx @tailwindcss/cli -i style/app.css -o assets/app.css --minify */
 @import "tailwindcss";
 @source "../src/**/*.rs";
-@source "../app/ui/src/**/*.rs";
 @custom-variant dark (&:is(.dark *));
 
 :root {

@@ -8,7 +8,7 @@ name: Release
 
 on:
   push:
-    branches: [main]
+    branches: [archive/v1]
     tags: ["v1.*"]
   workflow_dispatch:
 
@@ -123,4 +123,6 @@ jobs:
           target_commitish: ${{ github.sha }}
           name: PenguinFin ${{ env.VERSION }}
           body_path: .github/release-notes.md
+          # "legacy": GitHub picks latest by version, so a 1.x fix never displaces a 2.x release.
+          make_latest: legacy
           files: dist/*

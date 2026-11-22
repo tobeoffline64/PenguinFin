@@ -13,9 +13,8 @@
 *.db-wal
 
 # PenguinFin 2 build outputs
-/app/target
-/app/ui/dist
-/app/src-tauri/gen
-/app/vendor
+
+# Build output left over from PenguinFin 2 checkouts
+/app/
 /repo-v2
 /build-dir-v2

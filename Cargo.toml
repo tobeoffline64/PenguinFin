@@ -1,8 +1,5 @@
 [workspace]
 members = ["crates/penguinfin-core", "crates/penguinfin-store"]
-# PenguinFin 2 (Tauri + Leptos) is its own workspace with its own lockfile: Dioxus and Tauri pin
-# different versions of the same native webview libraries. It uses the crates above by path.
-exclude = ["app"]
 
 [workspace.package]
 version = "1.10.0"
