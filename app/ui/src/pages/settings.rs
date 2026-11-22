@@ -391,7 +391,7 @@ fn About() -> impl IntoView {
         <Card>
             <CardHeader><CardTitle>"About"</CardTitle></CardHeader>
             <CardContent class="text-sm text-muted-foreground flex flex-col gap-1">
-                <p>{move || format!("PenguinFin {} (2.0 preview) · built with Rust, Tauri, Leptos and Rust/UI components.", version())}</p>
+                <p>{move || format!("PenguinFin {} (beta) · built with Rust, Tauri, Leptos and Rust/UI components.", version())}</p>
             </CardContent>
         </Card>
     }

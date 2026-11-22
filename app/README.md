@@ -5,9 +5,10 @@ The next major version, being built next to the 1.x desktop app. It reuses the e
 Dioxus interface with a Leptos one running in Tauri 2. The plan and its phases are in the
 "PenguinFin: moving to Tauri and Leptos" doc.
 
-**Status (phase 3 of 6 done):** every page from 1.x is ported: Dashboard, Income, Bills,
-Recurring expenses, Debt payoff, Accounts & investments, Savings goals, Projections and Settings &
-data. On the same data they show the same numbers as 1.x. Not packaged or released yet (phase 4).
+**Status (phase 4 of 6, beta):** every page from 1.x is ported and shows the same numbers on the
+same data. 2.0.0-beta.1 is packaged as a flatpak (same app ID as 1.x, so it upgrades in place) and
+a Windows installer plus portable zip, and published as a GitHub pre-release. 1.x stays the
+"latest" release until the beta has been checked on real data; then 2.0.0 replaces it.
 
 ## Layout
 
@@ -65,3 +66,29 @@ PENGUINFIN_DB=/tmp/pf2/penguinfin.db XDG_DATA_HOME=/tmp/pf2/xdg app/target/relea
 ```
 
 `PENGUINFIN_NO_KEYCHAIN=1` keeps the FRED key in a file instead of the system keychain.
+
+## Packaging and releases
+
+```bash
+app/build-flatpak.sh
+```
+
+builds `dist/penguinfin-2.flatpak` (Tailwind, `trunk build --release`, `cargo vendor` into
+`app/vendor`, then an offline `flatpak-builder` run with `flatpak/io.github.tobeoffline64.PenguinFin.v2.yml`).
+On Windows, `cargo tauri build` in `app/src-tauri` makes the NSIS installer in
+`app/target/release/bundle/nsis/`.
+
+`.github/workflows/release-v2.yml` publishes a release whenever the version in `app/Cargo.toml`
+has no release yet. A version with a suffix (`2.0.0-beta.1`) is published as a pre-release and
+never marked latest. The notes come from `.github/release-notes-v2.md`. CI (`ci.yml`, the `app-*`
+jobs) runs the tests and clippy for both the backend and the WebAssembly interface, and builds on
+Windows.
+
+### Automatic updates (not enabled yet)
+
+Tauri's updater only installs updates signed with the project's key. To turn it on, the
+maintainer generates the key pair on their own computer (`cargo tauri signer generate -w
+~/.tauri/penguinfin.key`), stores the private key and its password as the repository secrets
+`TAURI_SIGNING_PRIVATE_KEY` and `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`, and commits only the public
+key into `tauri.conf.json`. The private key never goes into the repository. Flatpak installs
+update through flatpak, not this updater.

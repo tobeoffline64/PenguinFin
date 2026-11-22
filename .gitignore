@@ -16,3 +16,6 @@
 /app/target
 /app/ui/dist
 /app/src-tauri/gen
+/app/vendor
+/repo-v2
+/build-dir-v2

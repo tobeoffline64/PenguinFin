@@ -1,0 +1,57 @@
+# PenguinFin 2 (Tauri + Leptos). Same app ID as 1.x, so installing it upgrades the 1.x data in
+# place (a dated copy of the old database is saved first).
+# Build:  app/build-flatpak.sh   (builds the interface, vendors crates, runs flatpak-builder offline)
+app-id: io.github.tobeoffline64.PenguinFin
+runtime: org.gnome.Platform
+runtime-version: '49'
+sdk: org.gnome.Sdk
+sdk-extensions:
+  - org.freedesktop.Sdk.Extension.rust-stable
+command: penguinfin
+finish-args:
+  - --share=ipc
+  - --socket=wayland
+  - --socket=fallback-x11
+  - --device=dri
+  # Backups and exports are saved where the person chooses, through the file chooser portal;
+  # Downloads stays readable so 1.x backups there can be imported without the portal.
+  - --filesystem=xdg-download
+  # Only for the optional FRED economic data. Nothing about your finances is sent.
+  - --share=network
+  # The FRED API key is kept in the desktop keychain (Secret Service).
+  - --talk-name=org.freedesktop.secrets
+build-options:
+  append-path: /usr/lib/sdk/rust-stable/bin
+modules:
+  - name: penguinfin
+    buildsystem: simple
+    build-options:
+      env:
+        CARGO_HOME: /run/build/penguinfin/cargo-home
+        CARGO_NET_OFFLINE: 'true'
+    build-commands:
+      # The interface (app/ui/dist) is built with Trunk before flatpak-builder runs; Tauri
+      # embeds it into the binary here.
+      - test -f app/ui/dist/index.html
+      - mkdir -p cargo-home && printf '[source.crates-io]\nreplace-with = "vendored-sources"\n\n[source.vendored-sources]\ndirectory = "%s/app/vendor"\n' "$PWD" > cargo-home/config.toml
+      - cd app && cargo --offline build --release --locked -p penguinfin-app --features custom-protocol
+      - install -Dm755 app/target/release/penguinfin-app /app/bin/penguinfin
+      - install -Dm644 flatpak/io.github.tobeoffline64.PenguinFin.desktop /app/share/applications/io.github.tobeoffline64.PenguinFin.desktop
+      - install -Dm644 flatpak/io.github.tobeoffline64.PenguinFin.v2.metainfo.xml /app/share/metainfo/io.github.tobeoffline64.PenguinFin.metainfo.xml
+      - install -Dm644 flatpak/io.github.tobeoffline64.PenguinFin.svg /app/share/icons/hicolor/scalable/apps/io.github.tobeoffline64.PenguinFin.svg
+    sources:
+      - type: dir
+        path: ..
+        skip:
+          - target
+          - vendor
+          - app/target
+          - node_modules
+          - .flatpak-dev
+          - .flatpak-builder
+          - .flatpak-prebuilt
+          - build-dir
+          - repo
+          - repo-v2
+          - build-dir-v2
+          - dist

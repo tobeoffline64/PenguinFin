@@ -14,6 +14,11 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 name = "penguinfin-app"
 path = "src/main.rs"
 
+[features]
+# Serve the built interface from inside the binary (what `cargo tauri build` turns on).
+# Plain `cargo build` without it is a dev build that loads the Trunk dev server.
+custom-protocol = ["tauri/custom-protocol"]
+
 [build-dependencies]
 tauri-build = { version = "2.7", features = [] }
 

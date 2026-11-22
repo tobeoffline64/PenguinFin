@@ -5,7 +5,7 @@ members = ["src-tauri", "ui"]
 resolver = "3"
 
 [workspace.package]
-version = "2.0.0-alpha.1"
+version = "2.0.0-beta.1"
 edition = "2024"
 license = "MIT"
 

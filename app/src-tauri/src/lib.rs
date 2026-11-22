@@ -285,7 +285,12 @@ async fn sync_market_data(state: State<'_, AppState>) -> Result<SyncOutcome> {
 }
 
 fn downloads(app: &AppHandle) -> PathBuf {
-    app.path().download_dir().unwrap_or_else(|_| penguinfin_store::db::home_dir())
+    // Without an XDG user-dirs file the lookup fails; ~/Downloads usually exists anyway.
+    app.path().download_dir().unwrap_or_else(|_| {
+        let home = penguinfin_store::db::home_dir();
+        let guess = home.join("Downloads");
+        if guess.is_dir() { guess } else { home }
+    })
 }
 
 fn ask_save_path(app: &AppHandle, name: String, ext: &str, label: &str) -> Option<PathBuf> {
