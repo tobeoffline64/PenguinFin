@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-set-fred-key"
+description = "Enables the set_fred_key command without any pre-configured scope."
+commands.allow = ["set_fred_key"]
+
+[[permission]]
+identifier = "deny-set-fred-key"
+description = "Denies the set_fred_key command without any pre-configured scope."
+commands.deny = ["set_fred_key"]

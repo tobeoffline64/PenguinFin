@@ -203,9 +203,12 @@ mod tests {
         db.load().unwrap()
     }
 
+    /// Fixtures exist for every schema a released app wrote (1.1.0 to 1.10.0).
+    const RELEASED_SCHEMAS: std::ops::RangeInclusive<i64> = 1..=7;
+
     #[test]
     fn every_old_schema_upgrades_and_round_trips() {
-        for v in 1..=SCHEMA_VERSION {
+        for v in RELEASED_SCHEMAS {
             let db_path = fixture(&format!("schema-v{v}.db"));
             // The file is read, never changed, and nothing is written beside it.
             let before = std::fs::read(&db_path).unwrap();
@@ -273,10 +276,10 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("penguinfin.db");
         std::fs::copy(fixture("schema-v7.db"), &path).unwrap();
-        rusqlite::Connection::open(&path).unwrap().execute_batch("PRAGMA user_version = 8;").unwrap();
+        rusqlite::Connection::open(&path).unwrap().execute_batch("PRAGMA user_version = 99;").unwrap();
         let err = Db::open(&path).err().expect("must refuse");
         assert!(err.contains("newer PenguinFin"), "{err}");
         let v: i64 = rusqlite::Connection::open(&path).unwrap().query_row("PRAGMA user_version", [], |r| r.get(0)).unwrap();
-        assert_eq!(v, 8);
+        assert_eq!(v, 99);
     }
 }

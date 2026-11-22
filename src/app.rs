@@ -453,17 +453,8 @@ pub fn sync_market_data(mut store: Store, manual: bool) {
     });
 }
 
-/// If the inflation assumption follows a FRED indicator, copy its latest value (rounded to
-/// 0.1%) into the inflation setting used by projections.
+/// If the inflation assumption follows a FRED indicator, copy its latest value into the
+/// inflation setting used by projections.
 pub fn apply_market_inflation(db: &mut Db) -> Result<(), String> {
-    let data = db.load()?;
-    let Some(indicator) = data.fred.inflation_source.indicator() else { return Ok(()) };
-    let Some(v) = data.market.get(indicator) else { return Ok(()) };
-    let rounded = (v.value * 10.0).round() / 10.0;
-    if (data.settings.inflation_pct - rounded).abs() > f64::EPSILON {
-        let mut s = data.settings.clone();
-        s.inflation_pct = rounded;
-        db.save_settings(&s)?;
-    }
-    Ok(())
+    db.apply_market_inflation()
 }

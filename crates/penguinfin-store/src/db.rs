@@ -44,7 +44,7 @@ pub fn default_db_path() -> PathBuf {
 }
 
 /// The database format this version writes (`PRAGMA user_version`).
-pub const SCHEMA_VERSION: i64 = 7;
+pub const SCHEMA_VERSION: i64 = 8;
 
 pub struct Db {
     conn: Connection,
@@ -102,6 +102,86 @@ impl Db {
         })();
         let _ = std::fs::remove_dir_all(&dir);
         result
+    }
+
+    /// Open the app's own database, upgrading an older one. Before any upgrade a copy of the
+    /// file is saved beside it as `penguinfin-<from>-backup-YYYYMMDD-HHMMSS.db`; if the upgrade
+    /// fails, the original is put back and the error returned. Returns the copy's path.
+    pub fn open_upgrading(path: &Path) -> Result<(Self, Option<PathBuf>)> {
+        let old_version = if path.exists() {
+            let c = Connection::open_with_flags(path, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY).map_err(e)?;
+            c.query_row("PRAGMA user_version", [], |r| r.get::<_, i64>(0)).map_err(e)?
+        } else {
+            0
+        };
+        if old_version == 0 || old_version >= SCHEMA_VERSION {
+            return Ok((Db::open(path)?, None));
+        }
+        let stamp = chrono::Local::now().format("%Y%m%d-%H%M%S");
+        let label = if old_version < 8 { "1.x".to_string() } else { format!("v{old_version}") };
+        let backup = path.with_file_name(format!("penguinfin-{label}-backup-{stamp}.db"));
+        {
+            // The backup API copies a consistent snapshot, including anything still in the WAL.
+            let src = Connection::open_with_flags(path, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY).map_err(e)?;
+            let mut dst = Connection::open(&backup).map_err(e)?;
+            let b = rusqlite::backup::Backup::new(&src, &mut dst).map_err(e)?;
+            b.run_to_completion(256, std::time::Duration::ZERO, None).map_err(e)?;
+        }
+        match Db::open(path) {
+            Ok(db) => Ok((db, Some(backup))),
+            Err(err) => {
+                // Put the original back: copy the snapshot over it and drop a stale WAL.
+                for side in ["-wal", "-shm"] {
+                    let mut p = path.as_os_str().to_owned();
+                    p.push(side);
+                    let _ = std::fs::remove_file(PathBuf::from(p));
+                }
+                std::fs::copy(&backup, path).map_err(e)?;
+                Err(format!("{err}. Your data was left as it was; a copy is at {}", backup.display()))
+            }
+        }
+    }
+
+    /// Copy the whole database to `dest` (a consistent snapshot, safe while in use).
+    pub fn backup_to(&self, dest: &Path) -> Result<()> {
+        let mut out = Connection::open(dest).map_err(e)?;
+        let b = rusqlite::backup::Backup::new(&self.conn, &mut out).map_err(e)?;
+        b.run_to_completion(256, std::time::Duration::ZERO, None).map_err(e)
+    }
+
+    pub fn meta(&self, key: &str) -> Result<Option<String>> {
+        self.conn.query_row("SELECT value FROM meta WHERE key = ?1", [key], |r| r.get(0)).optional().map_err(e)
+    }
+
+    pub fn set_meta(&self, key: &str, value: &str) -> Result<()> {
+        self.conn
+            .execute(
+                "INSERT INTO meta (key, value) VALUES (?1, ?2) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+                params![key, value],
+            )
+            .map_err(e)?;
+        Ok(())
+    }
+
+    /// Remove the FRED key from the database (2.0 keeps it in the OS keychain instead).
+    pub fn clear_fred_key(&self) -> Result<()> {
+        self.conn.execute("DELETE FROM settings WHERE key = 'fred_api_key'", []).map_err(e)?;
+        Ok(())
+    }
+
+    /// If the inflation assumption follows a FRED indicator, copy its latest value (rounded to
+    /// 0.1%) into the inflation setting used by projections.
+    pub fn apply_market_inflation(&mut self) -> Result<()> {
+        let data = self.load()?;
+        let Some(indicator) = data.fred.inflation_source.indicator() else { return Ok(()) };
+        let Some(v) = data.market.get(indicator) else { return Ok(()) };
+        let rounded = (v.value * 10.0).round() / 10.0;
+        if (data.settings.inflation_pct - rounded).abs() > f64::EPSILON {
+            let mut s = data.settings.clone();
+            s.inflation_pct = rounded;
+            self.save_settings(&s)?;
+        }
+        Ok(())
     }
 
     /// The data format of the open database.
@@ -277,7 +357,51 @@ impl Db {
                 )
                 .map_err(e)?;
         }
-        const { assert!(SCHEMA_VERSION == 7, "add a migration step above") };
+        if version < 8 {
+            // 2.0: a meta table (where the file came from) and updated_at on every row,
+            // kept current by triggers so every write path stamps it.
+            self.conn
+                .execute_batch(
+                    "BEGIN;
+                CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+                INSERT OR IGNORE INTO meta (key, value) VALUES ('created_at', strftime('%Y-%m-%dT%H:%M:%SZ', 'now'));
+                ALTER TABLE cash_flows ADD COLUMN updated_at TEXT NOT NULL DEFAULT '';
+                UPDATE cash_flows SET updated_at = strftime('%Y-%m-%dT%H:%M:%SZ', 'now');
+                CREATE TRIGGER IF NOT EXISTS cash_flows_inserted AFTER INSERT ON cash_flows BEGIN UPDATE cash_flows SET updated_at = strftime('%Y-%m-%dT%H:%M:%SZ', 'now') WHERE id = NEW.id; END;
+                CREATE TRIGGER IF NOT EXISTS cash_flows_updated AFTER UPDATE ON cash_flows WHEN NEW.updated_at = OLD.updated_at BEGIN UPDATE cash_flows SET updated_at = strftime('%Y-%m-%dT%H:%M:%SZ', 'now') WHERE id = NEW.id; END;
+                ALTER TABLE accounts ADD COLUMN updated_at TEXT NOT NULL DEFAULT '';
+                UPDATE accounts SET updated_at = strftime('%Y-%m-%dT%H:%M:%SZ', 'now');
+                CREATE TRIGGER IF NOT EXISTS accounts_inserted AFTER INSERT ON accounts BEGIN UPDATE accounts SET updated_at = strftime('%Y-%m-%dT%H:%M:%SZ', 'now') WHERE id = NEW.id; END;
+                CREATE TRIGGER IF NOT EXISTS accounts_updated AFTER UPDATE ON accounts WHEN NEW.updated_at = OLD.updated_at BEGIN UPDATE accounts SET updated_at = strftime('%Y-%m-%dT%H:%M:%SZ', 'now') WHERE id = NEW.id; END;
+                ALTER TABLE holdings ADD COLUMN updated_at TEXT NOT NULL DEFAULT '';
+                UPDATE holdings SET updated_at = strftime('%Y-%m-%dT%H:%M:%SZ', 'now');
+                CREATE TRIGGER IF NOT EXISTS holdings_inserted AFTER INSERT ON holdings BEGIN UPDATE holdings SET updated_at = strftime('%Y-%m-%dT%H:%M:%SZ', 'now') WHERE id = NEW.id; END;
+                CREATE TRIGGER IF NOT EXISTS holdings_updated AFTER UPDATE ON holdings WHEN NEW.updated_at = OLD.updated_at BEGIN UPDATE holdings SET updated_at = strftime('%Y-%m-%dT%H:%M:%SZ', 'now') WHERE id = NEW.id; END;
+                ALTER TABLE goals ADD COLUMN updated_at TEXT NOT NULL DEFAULT '';
+                UPDATE goals SET updated_at = strftime('%Y-%m-%dT%H:%M:%SZ', 'now');
+                CREATE TRIGGER IF NOT EXISTS goals_inserted AFTER INSERT ON goals BEGIN UPDATE goals SET updated_at = strftime('%Y-%m-%dT%H:%M:%SZ', 'now') WHERE id = NEW.id; END;
+                CREATE TRIGGER IF NOT EXISTS goals_updated AFTER UPDATE ON goals WHEN NEW.updated_at = OLD.updated_at BEGIN UPDATE goals SET updated_at = strftime('%Y-%m-%dT%H:%M:%SZ', 'now') WHERE id = NEW.id; END;
+                ALTER TABLE buckets ADD COLUMN updated_at TEXT NOT NULL DEFAULT '';
+                UPDATE buckets SET updated_at = strftime('%Y-%m-%dT%H:%M:%SZ', 'now');
+                CREATE TRIGGER IF NOT EXISTS buckets_inserted AFTER INSERT ON buckets BEGIN UPDATE buckets SET updated_at = strftime('%Y-%m-%dT%H:%M:%SZ', 'now') WHERE id = NEW.id; END;
+                CREATE TRIGGER IF NOT EXISTS buckets_updated AFTER UPDATE ON buckets WHEN NEW.updated_at = OLD.updated_at BEGIN UPDATE buckets SET updated_at = strftime('%Y-%m-%dT%H:%M:%SZ', 'now') WHERE id = NEW.id; END;
+                ALTER TABLE debts ADD COLUMN updated_at TEXT NOT NULL DEFAULT '';
+                UPDATE debts SET updated_at = strftime('%Y-%m-%dT%H:%M:%SZ', 'now');
+                CREATE TRIGGER IF NOT EXISTS debts_inserted AFTER INSERT ON debts BEGIN UPDATE debts SET updated_at = strftime('%Y-%m-%dT%H:%M:%SZ', 'now') WHERE id = NEW.id; END;
+                CREATE TRIGGER IF NOT EXISTS debts_updated AFTER UPDATE ON debts WHEN NEW.updated_at = OLD.updated_at BEGIN UPDATE debts SET updated_at = strftime('%Y-%m-%dT%H:%M:%SZ', 'now') WHERE id = NEW.id; END;
+                ALTER TABLE debt_payments ADD COLUMN updated_at TEXT NOT NULL DEFAULT '';
+                UPDATE debt_payments SET updated_at = strftime('%Y-%m-%dT%H:%M:%SZ', 'now');
+                CREATE TRIGGER IF NOT EXISTS debt_payments_inserted AFTER INSERT ON debt_payments BEGIN UPDATE debt_payments SET updated_at = strftime('%Y-%m-%dT%H:%M:%SZ', 'now') WHERE id = NEW.id; END;
+                CREATE TRIGGER IF NOT EXISTS debt_payments_updated AFTER UPDATE ON debt_payments WHEN NEW.updated_at = OLD.updated_at BEGIN UPDATE debt_payments SET updated_at = strftime('%Y-%m-%dT%H:%M:%SZ', 'now') WHERE id = NEW.id; END;
+                PRAGMA user_version = 8;
+                COMMIT;",
+                )
+                .map_err(e)?;
+            if version > 0 {
+                self.set_meta("migrated_from", &version.to_string())?;
+            }
+        }
+        const { assert!(SCHEMA_VERSION == 8, "add a migration step above") };
         Ok(())
     }
 
@@ -1031,6 +1155,70 @@ pub fn import_json(path: &Path) -> Result<AppData> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn fixture(name: &str) -> PathBuf {
+        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures").join(name)
+    }
+
+    #[test]
+    fn upgrading_a_1x_file_keeps_a_copy_and_stamps_rows() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("penguinfin.db");
+        std::fs::copy(fixture("schema-v7.db"), &path).unwrap();
+        let before = std::fs::read(&path).unwrap();
+        let (db, copy) = Db::open_upgrading(&path).unwrap();
+        let copy = copy.expect("a copy is made before upgrading");
+        assert!(copy.file_name().unwrap().to_str().unwrap().starts_with("penguinfin-1.x-backup-"));
+        let c = Connection::open(&copy).unwrap();
+        assert_eq!(c.query_row("PRAGMA user_version", [], |r| r.get::<_, i64>(0)).unwrap(), 7);
+        assert_eq!(db.schema_version().unwrap(), SCHEMA_VERSION);
+        assert_eq!(db.meta("migrated_from").unwrap().as_deref(), Some("7"));
+        assert!(db.meta("created_at").unwrap().is_some());
+        let stamped: i64 = db.conn.query_row("SELECT count(*) FROM accounts WHERE updated_at != ''", [], |r| r.get(0)).unwrap();
+        assert_eq!(stamped as usize, db.accounts().unwrap().len());
+        // Same data as before the upgrade.
+        let old = Db::open_copy(&copy).unwrap().load().unwrap();
+        assert_eq!(old.accounts, db.load().unwrap().accounts);
+        assert_eq!(old.debt_payments, db.load().unwrap().debt_payments);
+        drop(db);
+        assert_ne!(std::fs::read(&path).unwrap(), before);
+        // A second open has nothing to upgrade and makes no copy.
+        assert!(Db::open_upgrading(&path).unwrap().1.is_none());
+    }
+
+    #[test]
+    fn new_rows_and_edits_get_updated_at() {
+        let db = Db::open_in_memory().unwrap();
+        let mut a = Account {
+            id: 0,
+            name: "Checking".into(),
+            kind: AccountKind::Checking,
+            balance: 10.0,
+            annual_return_pct: 0.0,
+            monthly_contribution: 0.0,
+            contribution_from_cash: false,
+            employer_match_monthly: 0.0,
+            notes: String::new(),
+            purpose: String::new(),
+            minimum_balance: 0.0,
+        };
+        a.id = db.save_account(&a).unwrap();
+        let stamp = |db: &Db| -> String {
+            db.conn.query_row("SELECT updated_at FROM accounts WHERE id = ?1", [a.id], |r| r.get(0)).unwrap()
+        };
+        assert!(stamp(&db).ends_with('Z'));
+        db.conn.execute("UPDATE accounts SET updated_at = 'old' WHERE id = ?1", [a.id]).unwrap();
+        a.balance = 20.0;
+        db.save_account(&a).unwrap();
+        assert_ne!(stamp(&db), "old");
+    }
+
+    #[test]
+    fn a_new_database_has_no_migrated_from() {
+        let db = Db::open_in_memory().unwrap();
+        assert_eq!(db.meta("migrated_from").unwrap(), None);
+        assert_eq!(db.schema_version().unwrap(), SCHEMA_VERSION);
+    }
 
     #[test]
     fn roundtrip_everything() {

@@ -11,4 +11,9 @@ serde = { workspace = true }
 serde_json = { workspace = true }
 # FRED economic data (optional, only when an API key is set). Blocking client used on
 # worker threads; rustls with the system's certificate store.
-ureq = { version = "2.12", default-features = false, features = ["tls", "native-certs", "proxy-from-env"] }
+ureq = { version = "2.12", default-features = false, features = ["tls", "native-certs", "proxy-from-env"], optional = true }
+
+[features]
+default = ["net"]
+# The FRED HTTP client. Off for the WebAssembly interface, which never talks to the network.
+net = ["dep:ureq"]

@@ -11,8 +11,11 @@
 //! A sync makes 7 small requests in parallel on worker threads, with short timeouts.
 //! Nothing here runs on the UI thread.
 
-use chrono::{Datelike, NaiveDate};
+#[cfg(feature = "net")]
+use chrono::Datelike;
+use chrono::NaiveDate;
 use serde::{Deserialize, Serialize};
+#[cfg(feature = "net")]
 use std::time::Duration;
 
 pub const DEFAULT_BASE_URL: &str = "https://api.stlouisfed.org";
@@ -144,7 +147,9 @@ impl InflationSource {
 }
 
 /// FRED settings. Stored locally; deliberately not part of JSON backups (the key is a secret).
-#[derive(Debug, Clone, PartialEq)]
+/// Serializable so the 2.0 backend can send it to the interface, always with `api_key` empty.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
 pub struct FredConfig {
     pub api_key: String,
     pub sync_on_launch: bool,
@@ -164,7 +169,8 @@ impl FredConfig {
 }
 
 /// Cached market data plus the outcome of the last sync.
-#[derive(Debug, Clone, PartialEq, Default)]
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+#[serde(default)]
 pub struct MarketData {
     pub values: Vec<MarketValue>,
     /// Local time of the last sync attempt, "YYYY-MM-DD HH:MM".
@@ -230,12 +236,14 @@ fn clean_error(msg: &str) -> String {
 }
 
 /// Minimal FRED client. `base_url` is configurable so tests can point it at a local server.
+#[cfg(feature = "net")]
 pub struct Client {
     agent: ureq::Agent,
     base_url: String,
     api_key: String,
 }
 
+#[cfg(feature = "net")]
 impl Client {
     pub fn new(base_url: &str, api_key: &str) -> Self {
         let agent = ureq::AgentBuilder::new()

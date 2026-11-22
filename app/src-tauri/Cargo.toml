@@ -1,0 +1,31 @@
+[package]
+name = "penguinfin-app"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "PenguinFin 2: the Tauri backend"
+
+[lib]
+name = "penguinfin_app"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[[bin]]
+# Renamed to `penguinfin` once the 1.x desktop app is retired (phase 4).
+name = "penguinfin-app"
+path = "src/main.rs"
+
+[build-dependencies]
+tauri-build = { version = "2.7", features = [] }
+
+[dependencies]
+penguinfin-core = { path = "../../crates/penguinfin-core" }
+penguinfin-store = { path = "../../crates/penguinfin-store" }
+tauri = { version = "2.12", features = [] }
+tauri-plugin-dialog = "2.8"
+serde = { workspace = true }
+serde_json = { workspace = true }
+chrono = { workspace = true }
+
+# The FRED key lives in the OS keychain: Secret Service on Linux, Credential Manager on Windows.
+[target.'cfg(any(target_os = "linux", target_os = "windows", target_os = "macos"))'.dependencies]
+keyring = { version = "3.6", features = ["sync-secret-service", "crypto-rust", "windows-native", "apple-native"] }
