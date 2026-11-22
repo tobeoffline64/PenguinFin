@@ -55,7 +55,8 @@ jobs:
           workspaces: app
       - name: Styles and interface
         run: |
-          npx --yes @tailwindcss/cli -i style/app.css -o assets/app.css --minify
+          npm ci
+          npx @tailwindcss/cli -i style/app.css -o assets/app.css --minify
           cd app/ui && trunk build --release
       - name: Test
         working-directory: app
@@ -81,7 +82,8 @@ jobs:
           workspaces: app
       - name: Styles and interface
         run: |
-          npx --yes @tailwindcss/cli -i style/app.css -o assets/app.css --minify
+          npm ci
+          npx @tailwindcss/cli -i style/app.css -o assets/app.css --minify
           cd app/ui
           trunk build --release
       - name: Build

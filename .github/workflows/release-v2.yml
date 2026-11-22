@@ -95,7 +95,9 @@ jobs:
           tool: trunk@0.22.2,tauri-cli@2.12.6
 
       - name: Styles
-        run: npx --yes @tailwindcss/cli -i style/app.css -o assets/app.css --minify
+        run: |
+          npm ci
+          npx @tailwindcss/cli -i style/app.css -o assets/app.css --minify
 
       # Builds the interface (trunk), the release binary and the NSIS installer. WebView2 is
       # built into Windows 10/11; the installer downloads it only if it's missing.

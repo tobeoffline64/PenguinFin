@@ -3,7 +3,7 @@
 #
 #   app/build-flatpak.sh          build the interface, vendor crates, compile inside flatpak-builder
 #
-# Requires: flatpak, flatpak-builder, cargo, trunk, the wasm32-unknown-unknown target, npx
+# Requires: flatpak, flatpak-builder, cargo, trunk, the wasm32-unknown-unknown target, npm
 # (for Tailwind). The GNOME 49 runtime and Rust SDK extension are installed from Flathub if missing.
 set -euo pipefail
 cd "$(dirname "$0")/.."
@@ -15,7 +15,7 @@ step() { CURRENT_STEP="$*"; printf '\n\033[1m==> %s\033[0m\n' "$*"; }
 trap 'echo >&2; echo "Build failed during: $CURRENT_STEP" >&2' ERR
 SECONDS=0
 
-for tool in flatpak flatpak-builder cargo trunk npx; do
+for tool in flatpak flatpak-builder cargo trunk npm npx; do
   command -v "$tool" > /dev/null || { echo "Missing: $tool (see app/README.md)" >&2; exit 1; }
 done
 
@@ -31,7 +31,8 @@ if (( ${#need[@]} )); then
 fi
 
 step "Building styles and the interface"
-npx --yes @tailwindcss/cli -i style/app.css -o assets/app.css --minify > /dev/null 2>&1
+[ -d node_modules/tailwindcss ] || npm ci --silent
+npx @tailwindcss/cli -i style/app.css -o assets/app.css --minify > /dev/null 2>&1
 (cd app/ui && trunk build --release > /dev/null)
 
 step "Vendoring Rust crates"
