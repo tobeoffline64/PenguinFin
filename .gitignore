@@ -7,3 +7,7 @@
 /dist
 /.flatpak-dev
 /.flatpak-prebuilt
+
+# SQLite sidecar files
+*.db-shm
+*.db-wal

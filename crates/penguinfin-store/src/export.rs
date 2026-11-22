@@ -207,11 +207,18 @@ mod tests {
     fn every_old_schema_upgrades_and_round_trips() {
         for v in 1..=SCHEMA_VERSION {
             let db_path = fixture(&format!("schema-v{v}.db"));
-            // The file is read, never changed.
+            // The file is read, never changed, and nothing is written beside it.
             let before = std::fs::read(&db_path).unwrap();
+            let listing = || {
+                let mut v: Vec<_> = std::fs::read_dir(db_path.parent().unwrap()).unwrap().map(|e| e.unwrap().file_name()).collect();
+                v.sort();
+                v
+            };
+            let files_before = listing();
             let imported = read_file(&db_path).unwrap_or_else(|e| panic!("schema v{v}: {e}"));
             assert_eq!(imported.source, Source::Database { schema_version: SCHEMA_VERSION }, "v{v}");
             assert_eq!(std::fs::read(&db_path).unwrap(), before, "v{v} file was modified");
+            assert_eq!(listing(), files_before, "v{v}: files appeared beside the database");
             let upgraded = imported.data;
             assert!(upgraded.accounts.len() >= 5 && !upgraded.flows.is_empty(), "v{v}");
 

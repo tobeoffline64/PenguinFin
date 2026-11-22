@@ -72,20 +72,36 @@ impl Db {
     }
 
     /// Open a copy of another database file in memory, upgraded to this version's format.
-    /// The file itself is only read, never changed (e.g. a `penguinfin.db` from another computer).
+    /// Nothing is written next to the original (e.g. a `penguinfin.db` from another computer):
+    /// the file and its write-ahead log, if any, are copied to a private temporary folder first.
     pub fn open_copy(path: &Path) -> Result<Self> {
         use rusqlite::OpenFlags;
-        let src = Connection::open_with_flags(path, OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX)
-            .map_err(e)?;
-        let mut conn = Connection::open_in_memory().map_err(e)?;
-        {
-            let backup = rusqlite::backup::Backup::new(&src, &mut conn).map_err(e)?;
-            backup.run_to_completion(256, std::time::Duration::ZERO, None).map_err(e)?;
-        }
-        conn.execute_batch("PRAGMA foreign_keys = ON;").map_err(e)?;
-        let db = Db { conn, path: path.to_path_buf() };
-        db.migrate()?;
-        Ok(db)
+        static NEXT: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+        let n = NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let dir = std::env::temp_dir().join(format!("penguinfin-import-{}-{n}", std::process::id()));
+        std::fs::create_dir_all(&dir).map_err(e)?;
+        let result = (|| {
+            let tmp = dir.join("import.db");
+            std::fs::copy(path, &tmp).map_err(e)?;
+            let mut wal = path.as_os_str().to_owned();
+            wal.push("-wal");
+            if Path::new(&wal).exists() {
+                std::fs::copy(&wal, dir.join("import.db-wal")).map_err(e)?;
+            }
+            let src = Connection::open_with_flags(&tmp, OpenFlags::SQLITE_OPEN_READ_WRITE | OpenFlags::SQLITE_OPEN_NO_MUTEX)
+                .map_err(e)?;
+            let mut conn = Connection::open_in_memory().map_err(e)?;
+            {
+                let backup = rusqlite::backup::Backup::new(&src, &mut conn).map_err(e)?;
+                backup.run_to_completion(256, std::time::Duration::ZERO, None).map_err(e)?;
+            }
+            conn.execute_batch("PRAGMA foreign_keys = ON;").map_err(e)?;
+            let db = Db { conn, path: path.to_path_buf() };
+            db.migrate()?;
+            Ok(db)
+        })();
+        let _ = std::fs::remove_dir_all(&dir);
+        result
     }
 
     /// The data format of the open database.

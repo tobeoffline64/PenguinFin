@@ -2952,15 +2952,34 @@ dependencies = [
  "dioxus",
  "futures-channel",
  "gtk",
+ "penguinfin-core",
+ "penguinfin-store",
+ "strum",
+ "tw_merge",
+ "winresource",
+]
+
+[[package]]
+name = "penguinfin-core"
+version = "1.10.0"
+dependencies = [
+ "chrono",
+ "serde",
+ "serde_json",
+ "ureq",
+]
+
+[[package]]
+name = "penguinfin-store"
+version = "1.10.0"
+dependencies = [
+ "chrono",
+ "penguinfin-core",
  "rusqlite",
  "serde",
  "serde_json",
  "sha2",
- "strum",
  "tempfile",
- "tw_merge",
- "ureq",
- "winresource",
 ]
 
 [[package]]

@@ -1,25 +1,32 @@
-[package]
-name = "penguinfin"
+[workspace]
+members = ["crates/penguinfin-core", "crates/penguinfin-store"]
+
+[workspace.package]
 version = "1.10.0"
 edition = "2024"
-description = "Offline personal finance planner: recurring expenses, bills, income and investment projections"
 license = "MIT"
 
+[workspace.dependencies]
+chrono = { version = "0.4", default-features = false, features = ["clock", "std", "serde"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+[package]
+name = "penguinfin"
+version.workspace = true
+edition.workspace = true
+description = "Offline personal finance planner: recurring expenses, bills, income and investment projections"
+license.workspace = true
+
 [dependencies]
+penguinfin-core = { path = "crates/penguinfin-core" }
+penguinfin-store = { path = "crates/penguinfin-store" }
 # Pinned like rust-ui/ui: 0.7.10 has no matching dioxus-desktop release.
 dioxus = { version = "=0.7.9", default-features = false, features = ["desktop", "launch", "macro", "html", "signals", "hooks", "document"] }
 tw_merge = { version = "0.1" }
 strum = { version = "0.28", features = ["derive"] }
-rusqlite = { version = "0.32", features = ["bundled", "backup"] }
-sha2 = "0.10"
-chrono = { version = "0.4", default-features = false, features = ["clock", "std", "serde"] }
-serde = { version = "1", features = ["derive"] }
-serde_json = "1"
+chrono = { workspace = true }
 futures-channel = "0.3"
-# FRED economic data (optional, only when an API key is set). Blocking client used on
-# worker threads; rustls with the system's certificate store.
-ureq = { version = "2.12", default-features = false, features = ["tls", "native-certs", "proxy-from-env"] }
-
 [target.'cfg(target_os = "linux")'.dependencies]
 # Already used by the webview; needed to keep native popups (dropdown lists) on the app theme.
 gtk = "0.18"
@@ -27,9 +34,6 @@ gtk = "0.18"
 [build-dependencies]
 # Embeds the icon and version info into the Windows .exe (no-op on other platforms).
 winresource = "0.1"
-
-[dev-dependencies]
-tempfile = "3"
 
 [profile.release]
 opt-level = 3

@@ -185,13 +185,9 @@ For quick UI work you can skip flatpak entirely: `cargo run` builds a debug bina
 
 | Path | What |
 | --- | --- |
-| `src/model.rs` | Domain types, schedule math (occurrence dates) |
-| `src/projection.rs` | Monthly projection engine, upcoming payments, category totals |
-| `src/db.rs` | SQLite schema, migrations, CRUD, JSON backup |
-| `src/export.rs` | `.pfexport` files and importing any backup, export or database file |
-| `src/goals.rs` | Savings-goal planner (affordability under minimum balances) |
-| `src/fred.rs` | FRED API client: indicators, parallel fetch, parsing |
-| `src/prices.rs` | Price provider trait (manual in v1) |
+| `crates/penguinfin-core/` | The finance engine, no storage or UI: `model.rs` (domain types, schedule math), `projection.rs` (monthly projections), `debt.rs` (payoff plans), `goals.rs` (savings-goal planner), `fred.rs` (FRED client), `prices.rs`, `sample.rs` |
+| `crates/penguinfin-store/` | Storage: `db.rs` (SQLite schema, migrations, CRUD, JSON backup), `export.rs` (`.pfexport` files and importing any backup, export or database file), `tests/fixtures/` (databases written by every past schema) |
+| `src/` | The desktop app (Dioxus): `main.rs`, `app.rs`, `widgets.rs`; `src/lib.rs` re-exports the two crates as `penguinfin::…` |
 | `src/ui/` | Rust/UI components (copied from the registry, MIT; see `LICENSE-rust-ui`) |
 | `src/views/` | Dashboard, cash flows, accounts, projections, settings |
 | `style/app.css` | Tailwind source with Rust/UI theme tokens; compiled to `assets/app.css` |
