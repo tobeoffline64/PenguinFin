@@ -1,21 +1,21 @@
-# Publishes a GitHub release with the Linux flatpak, the Windows zip and the source archive.
+# Publishes a GitHub release: the Linux flatpak, the Windows installer and a portable Windows zip.
+# A version with a suffix (2.0.0-beta.1) is a pre-release and never marked latest. PenguinFin 1.x
+# is archived on the archive/v1 branch, which has its own release workflow.
 #
 # Triggers:
 #   - push to main: releases v<version from Cargo.toml> if that release doesn't exist yet
-#     (so bumping `version` in Cargo.toml and pushing cuts a new release)
-#   - pushing a v* tag, or running the workflow manually
+#   - pushing a v2.* tag, or running the workflow manually
 name: Release
 
 on:
   push:
     branches: [main]
-    tags: ["v1.*"]
+    tags: ["v2.*", "v3.*"]
   workflow_dispatch:
 
 permissions:
   contents: write
 
-# One release build at a time; a queued run re-checks and skips if the release now exists.
 concurrency:
   group: release
   cancel-in-progress: false
@@ -26,6 +26,7 @@ jobs:
     outputs:
       version: ${{ steps.v.outputs.version }}
       release: ${{ steps.v.outputs.release }}
+      prerelease: ${{ steps.v.outputs.prerelease }}
     steps:
       - uses: actions/checkout@v4
       - id: v
@@ -34,6 +35,8 @@ jobs:
         run: |
           VERSION=$(grep -m1 '^version' Cargo.toml | cut -d '"' -f2)
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          # Anything with a suffix (2.0.0-beta.1, 2.0.0-rc.1) is a pre-release.
+          if [[ "$VERSION" == *-* ]]; then echo "prerelease=true"; else echo "prerelease=false"; fi >> "$GITHUB_OUTPUT"
           if gh release view "v$VERSION" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
             echo "Release v$VERSION already exists; nothing to do."
             echo "release=false" >> "$GITHUB_OUTPUT"
@@ -50,15 +53,19 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install flatpak tooling
+      - name: Install tooling
         run: |
           sudo apt-get update
           sudo apt-get install -y flatpak flatpak-builder
           # Ubuntu 24.04 blocks unprivileged user namespaces, which bubblewrap needs.
           sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+          rustup target add wasm32-unknown-unknown
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: trunk@0.22.2
 
       - name: Build flatpak bundle
-        run: ./build-flatpak.sh --clean
+        run: ./build-flatpak.sh
 
       - name: Source archive
         run: |
@@ -69,7 +76,9 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: linux
-          path: dist/*
+          path: |
+            dist/penguinfin.flatpak
+            dist/penguinfin-${{ env.VERSION }}-source.tar.gz
 
   windows:
     needs: check
@@ -79,19 +88,33 @@ jobs:
       VERSION: ${{ needs.check.outputs.version }}
     steps:
       - uses: actions/checkout@v4
+      - name: WebAssembly target
+        run: rustup target add wasm32-unknown-unknown
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: trunk@0.22.2,tauri-cli@2.12.6
 
-      # MSVC toolchain (preinstalled). WebView2's loader is linked statically, so the
-      # .exe needs no extra DLLs; Windows 10/11 already ship the WebView2 runtime.
-      - name: Build
-        run: cargo build --release --locked
+      - name: Styles
+        run: |
+          npm ci
+          npx @tailwindcss/cli -i style/app.css -o assets/app.css --minify
 
-      - name: Package zip
+      # Builds the interface (trunk), the release binary and the NSIS installer. WebView2 is
+      # built into Windows 10/11; the installer downloads it only if it's missing.
+      - name: Build installer
+        working-directory: src-tauri
+        run: cargo tauri build
+
+      - name: Package
         shell: pwsh
         run: |
-          $name = "PenguinFin-$env:VERSION-windows-x64"
-          New-Item -ItemType Directory -Force -Path $name, dist | Out-Null
-          Copy-Item target/release/penguinfin.exe "$name/PenguinFin.exe"
-          if (Test-Path target/release/WebView2Loader.dll) { Copy-Item target/release/WebView2Loader.dll $name }
+          New-Item -ItemType Directory -Force -Path dist | Out-Null
+          Get-ChildItem target/release/bundle/nsis/*.exe | ForEach-Object {
+            Copy-Item $_.FullName "dist/PenguinFin-$env:VERSION-windows-x64-setup.exe"
+          }
+          $name = "PenguinFin-$env:VERSION-windows-x64-portable"
+          New-Item -ItemType Directory -Force -Path $name | Out-Null
+          Copy-Item target/release/penguinfin-app.exe "$name/PenguinFin.exe"
           Copy-Item LICENSE "$name/LICENSE.txt"
           Copy-Item packaging/windows/README.txt $name
           Compress-Archive -Path $name -DestinationPath "dist/$name.zip"
@@ -122,5 +145,7 @@ jobs:
           tag_name: v${{ env.VERSION }}
           target_commitish: ${{ github.sha }}
           name: PenguinFin ${{ env.VERSION }}
+          prerelease: ${{ needs.check.outputs.prerelease == 'true' }}
+          make_latest: ${{ needs.check.outputs.prerelease == 'true' && 'false' || 'true' }}
           body_path: .github/release-notes.md
           files: dist/*

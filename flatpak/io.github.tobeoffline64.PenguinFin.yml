@@ -1,4 +1,6 @@
-# Build:  ./build-flatpak.sh   (vendors crates, then runs flatpak-builder offline)
+# PenguinFin (Tauri + Leptos). Installing it over 1.x upgrades the 1.x data in place (a dated
+# copy of the old database is saved first).
+# Build:  ./build-flatpak.sh     (builds the interface, vendors crates, runs flatpak-builder offline)
 app-id: io.github.tobeoffline64.PenguinFin
 runtime: org.gnome.Platform
 runtime-version: '49'
@@ -11,47 +13,29 @@ finish-args:
   - --socket=wayland
   - --socket=fallback-x11
   - --device=dri
-  # Backups are exported to / restored from ~/Downloads.
+  # Backups and exports are saved where the person chooses, through the file chooser portal;
+  # Downloads stays readable so 1.x backups there can be imported without the portal.
   - --filesystem=xdg-download
-  # Required by the webview, not for internet access: Dioxus drives the UI over a
-  # local 127.0.0.1 websocket, and inside a flatpak WebKit runs its network process
-  # in its own sub-sandbox that cannot reach the app's loopback without this.
-  # PenguinFin itself makes no outbound requests (a future stock-quote API will use it).
+  # Only for the optional FRED economic data. Nothing about your finances is sent.
   - --share=network
+  # The FRED API key is kept in the desktop keychain (Secret Service).
+  - --talk-name=org.freedesktop.secrets
 build-options:
   append-path: /usr/lib/sdk/rust-stable/bin
 modules:
-  # dioxus-desktop (via muda) links libxdo, which the GNOME runtime does not ship.
-  - name: libxdo
-    buildsystem: simple
-    build-commands:
-      - make PREFIX=/app libxdo.so
-      - make PREFIX=/app INSTALLLIB=/app/lib INSTALLINCLUDE=/app/include installlib installheader
-    sources:
-      - type: archive
-        url: https://github.com/jordansissel/xdotool/releases/download/v3.20211022.1/xdotool-3.20211022.1.tar.gz
-        sha256: 96f0facfde6d78eacad35b91b0f46fecd0b35e474c03e00e30da3fdd345f9ada
-    cleanup:
-      - /include
-
   - name: penguinfin
     buildsystem: simple
     build-options:
       env:
         CARGO_HOME: /run/build/penguinfin/cargo-home
         CARGO_NET_OFFLINE: 'true'
-        LIBRARY_PATH: /app/lib
     build-commands:
-      # build-flatpak.sh (without --clean) compiles incrementally inside the same SDK and
-      # leaves the binary in .flatpak-prebuilt/. Otherwise build from source here.
-      - |
-        if [ -x .flatpak-prebuilt/penguinfin ]; then
-          install -Dm755 .flatpak-prebuilt/penguinfin /app/bin/penguinfin
-        else
-          mkdir -p cargo-home && cp flatpak/cargo-vendor-config.toml cargo-home/config.toml
-          cargo --offline build --release --locked
-          install -Dm755 target/release/penguinfin /app/bin/penguinfin
-        fi
+      # The interface (ui/dist) is built with Trunk before flatpak-builder runs; Tauri
+      # embeds it into the binary here.
+      - test -f ui/dist/index.html
+      - mkdir -p cargo-home && printf '[source.crates-io]\nreplace-with = "vendored-sources"\n\n[source.vendored-sources]\ndirectory = "%s/vendor"\n' "$PWD" > cargo-home/config.toml
+      - cargo --offline build --release --locked -p penguinfin-app --features custom-protocol
+      - install -Dm755 target/release/penguinfin-app /app/bin/penguinfin
       - install -Dm644 flatpak/io.github.tobeoffline64.PenguinFin.desktop /app/share/applications/io.github.tobeoffline64.PenguinFin.desktop
       - install -Dm644 flatpak/io.github.tobeoffline64.PenguinFin.metainfo.xml /app/share/metainfo/io.github.tobeoffline64.PenguinFin.metainfo.xml
       - install -Dm644 flatpak/io.github.tobeoffline64.PenguinFin.svg /app/share/icons/hicolor/scalable/apps/io.github.tobeoffline64.PenguinFin.svg
@@ -63,6 +47,7 @@ modules:
           - node_modules
           - .flatpak-dev
           - .flatpak-builder
+          - .flatpak-prebuilt
           - build-dir
           - repo
           - dist

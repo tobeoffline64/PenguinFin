@@ -1,5 +1,5 @@
-# Tests on Linux and a Windows build on every push and pull request, so problems show up
-# before a release is cut. The app-* jobs cover PenguinFin 2 (app/, its own workspace).
+# Tests and clippy on Linux and a Windows build on every push and pull request, so problems show
+# up before a release is cut.
 name: CI
 
 on:
@@ -15,35 +15,6 @@ jobs:
       - name: System libraries
         run: |
           sudo apt-get update
-          sudo apt-get install -y libwebkit2gtk-4.1-dev libgtk-3-dev libxdo-dev libsoup-3.0-dev
-      - uses: Swatinem/rust-cache@v2
-      - name: Test
-        run: cargo test --locked --workspace
-      - name: Clippy
-        run: cargo clippy --locked --workspace --all-targets
-
-  windows:
-    runs-on: windows-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: Swatinem/rust-cache@v2
-      - name: Test (core library)
-        run: cargo test --locked --workspace --lib
-      - name: Build
-        run: cargo build --release --locked
-      - name: Upload PenguinFin.exe
-        uses: actions/upload-artifact@v4
-        with:
-          name: penguinfin-windows-ci
-          path: target/release/penguinfin.exe
-
-  app-linux:
-    runs-on: ubuntu-24.04
-    steps:
-      - uses: actions/checkout@v4
-      - name: System libraries
-        run: |
-          sudo apt-get update
           sudo apt-get install -y libwebkit2gtk-4.1-dev libgtk-3-dev libsoup-3.0-dev libdbus-1-dev
       - name: WebAssembly target
         run: rustup target add wasm32-unknown-unknown
@@ -51,24 +22,19 @@ jobs:
         with:
           tool: trunk@0.22.2
       - uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: app
       - name: Styles and interface
         run: |
           npm ci
           npx @tailwindcss/cli -i style/app.css -o assets/app.css --minify
-          cd app/ui && trunk build --release
+          cd ui && trunk build --release
       - name: Test
-        working-directory: app
         run: cargo test --locked --workspace
-      - name: Clippy (backend)
-        working-directory: app
-        run: cargo clippy --locked -p penguinfin-app --all-targets -- -D warnings
+      - name: Clippy (backend and crates)
+        run: cargo clippy --locked -p penguinfin-app -p penguinfin-core -p penguinfin-store --all-targets -- -D warnings
       - name: Clippy (interface, WebAssembly)
-        working-directory: app
         run: cargo clippy --locked -p penguinfin-ui --target wasm32-unknown-unknown -- -D warnings
 
-  app-windows:
+  windows:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
@@ -78,14 +44,13 @@ jobs:
         with:
           tool: trunk@0.22.2
       - uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: app
       - name: Styles and interface
         run: |
           npm ci
           npx @tailwindcss/cli -i style/app.css -o assets/app.css --minify
-          cd app/ui
+          cd ui
           trunk build --release
+      - name: Test (engine and storage)
+        run: cargo test --locked -p penguinfin-core -p penguinfin-store
       - name: Build
-        working-directory: app
         run: cargo build --release --locked -p penguinfin-app --features custom-protocol

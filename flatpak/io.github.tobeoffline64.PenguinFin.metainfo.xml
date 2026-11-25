@@ -16,14 +16,20 @@
       <li>Multi-decade projections with raises, inflation and expected returns</li>
       <li>Savings goals that respect each account's minimum balance</li>
       <li>Debt payoff plans (avalanche or snowball) that keep your bills covered</li>
-      <li>What-if scenarios and JSON backups</li>
+      <li>What-if scenarios, JSON backups and checked .pfexport files</li>
       <li>Optional economic data from FRED (inflation, interest rates, market returns)</li>
     </ul>
   </description>
+  <url type="homepage">https://github.com/tobeoffline64/PenguinFin</url>
   <launchable type="desktop-id">io.github.tobeoffline64.PenguinFin.desktop</launchable>
   <developer id="io.github.tobeoffline64"><name>tobeoffline64</name></developer>
   <content_rating type="oars-1.1"/>
   <releases>
+    <release version="2.0.0~beta.1" date="2026-11-22" type="development">
+      <description>
+        <p>PenguinFin 2 beta: a new interface built with Tauri and Leptos, the FRED key kept in the desktop keychain, native file dialogs, and checked .pfexport files. Your 1.x data is upgraded in place, and a dated copy of the old database is saved first.</p>
+      </description>
+    </release>
     <release version="1.10.0" date="2026-11-21">
       <description>
         <p>Export for PenguinFin 2, a safer restore that accepts backups, exports and database files, and protection against opening newer data files.</p>

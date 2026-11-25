@@ -1,32 +1,40 @@
 # Building from source
 
-PenguinFin is written in Rust with [Dioxus](https://dioxuslabs.com) (desktop, WebView) and components from
-[Rust/UI](https://github.com/rust-ui/ui), styled with Tailwind CSS v4. Data is stored with SQLite
-(rusqlite).
+PenguinFin 2 is written in Rust: a [Tauri 2](https://tauri.app) backend and a [Leptos](https://leptos.dev)
+interface compiled to WebAssembly, with components from [Rust/UI](https://github.com/rust-ui/ui), styled
+with Tailwind CSS v4. Data is stored with SQLite (rusqlite). The 1.x app (Dioxus) is archived on the
+`archive/v1` branch.
 
-## Linux
-
-```bash
-sudo apt install libwebkit2gtk-4.1-dev libgtk-3-dev libxdo-dev libsoup-3.0-dev
-cargo run --release
-cargo test
-```
-
-Flatpak bundle (needs `flatpak`, `flatpak-builder` and Rust):
+## One-time setup
 
 ```bash
-./build-flatpak.sh            # fast incremental build (~15 s after the first)
-./build-flatpak.sh --release  # with link-time optimisation
-./build-flatpak.sh --clean    # from scratch, like the release build
+rustup target add wasm32-unknown-unknown
+cargo install --locked trunk
+cargo install --locked tauri-cli --version '^2'
+npm ci      # Tailwind CLI
 ```
 
-## Windows
+On Ubuntu, also:
 
-Install Rust (MSVC toolchain) with [rustup](https://rustup.rs), then:
+```bash
+sudo apt install libwebkit2gtk-4.1-dev libgtk-3-dev libsoup-3.0-dev libdbus-1-dev
+```
 
-```powershell
-cargo build --release
-.\target\release\penguinfin.exe
+On Windows, install Rust with the MSVC toolchain from [rustup](https://rustup.rs).
+
+## Run and test
+
+```bash
+cd src-tauri
+cargo tauri dev       # live reload
+cargo tauri build     # release build (and the installer on Windows)
+cargo test --workspace
+```
+
+Flatpak bundle (needs `flatpak` and `flatpak-builder`):
+
+```bash
+./build-flatpak.sh    # writes dist/penguinfin.flatpak
 ```
 
 ## Styles
@@ -34,7 +42,6 @@ cargo build --release
 The compiled CSS (`assets/app.css`) is committed. After changing Tailwind classes:
 
 ```bash
-npm install
 npx @tailwindcss/cli -i style/app.css -o assets/app.css --minify
 ```
 
@@ -43,17 +50,15 @@ npx @tailwindcss/cli -i style/app.css -o assets/app.css --minify
 | Variable | Effect |
 |---|---|
 | `PENGUINFIN_DB=/path/file.db` | Use another database |
-| `PENGUINFIN_WINDOW_SIZE=900x700` | Initial window size |
-| `PENGUINFIN_PERF=1` | Print input-to-frame latency |
-| `PENGUINFIN_SLOW=1` (debug builds) | Delay background work to inspect loading states |
+| `PENGUINFIN_NO_KEYCHAIN=1` | Keep the FRED key in a private file instead of the system keychain |
 | `PENGUINFIN_FRED_URL` | Point the FRED client at another server |
-| `PENGUINFIN_COMPAT_RENDERING=1` | Linux: XWayland, no DMA-BUF (for problem GPU drivers) |
 
-`cargo run --example seed -- /path/file.db` fills a database with the sample household.
+`cargo run -p penguinfin-store --example seed -- /path/file.db` fills a database with the sample household.
 
 ## Releases
 
-Bump `version` in `Cargo.toml` (and the release entry in `flatpak/*.metainfo.xml`), update
-`.github/release-notes.md`, and push to `main`. GitHub Actions builds the flatpak and the Windows zip
-and publishes `v<version>`. CI runs tests and a Windows build on every push. The wiki is published from
+Bump `version` in `Cargo.toml` (and add a release entry in `flatpak/*.metainfo.xml`), update
+`.github/release-notes.md`, and push to `main`. GitHub Actions builds the flatpak, the Windows installer
+and portable zip, and publishes `v<version>` (a pre-release when the version has a suffix such as
+`-beta.1`). CI runs tests and clippy and a Windows build on every push. The wiki is published from
 `docs/wiki/`.

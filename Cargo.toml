@@ -1,11 +1,12 @@
+# PenguinFin 2: Tauri backend (src-tauri) + Leptos interface (ui), on the engine and storage crates
+# in crates/. Build with `cargo tauri build` from src-tauri (see docs/ARCHITECTURE.md).
 [workspace]
-members = ["crates/penguinfin-core", "crates/penguinfin-store"]
-# PenguinFin 2 (Tauri + Leptos) is its own workspace with its own lockfile: Dioxus and Tauri pin
-# different versions of the same native webview libraries. It uses the crates above by path.
-exclude = ["app"]
+members = ["src-tauri", "ui", "crates/penguinfin-core", "crates/penguinfin-store"]
+default-members = ["src-tauri", "crates/penguinfin-core", "crates/penguinfin-store"]
+resolver = "3"
 
 [workspace.package]
-version = "1.10.0"
+version = "2.0.0-beta.1"
 edition = "2024"
 license = "MIT"
 
@@ -14,40 +15,9 @@ chrono = { version = "0.4", default-features = false, features = ["clock", "std"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 
-[package]
-name = "penguinfin"
-version.workspace = true
-edition.workspace = true
-description = "Offline personal finance planner: recurring expenses, bills, income and investment projections"
-license.workspace = true
-
-[dependencies]
-penguinfin-core = { path = "crates/penguinfin-core" }
-penguinfin-store = { path = "crates/penguinfin-store" }
-# Pinned like rust-ui/ui: 0.7.10 has no matching dioxus-desktop release.
-dioxus = { version = "=0.7.9", default-features = false, features = ["desktop", "launch", "macro", "html", "signals", "hooks", "document"] }
-tw_merge = { version = "0.1" }
-strum = { version = "0.28", features = ["derive"] }
-chrono = { workspace = true }
-futures-channel = "0.3"
-[target.'cfg(target_os = "linux")'.dependencies]
-# Already used by the webview; needed to keep native popups (dropdown lists) on the app theme.
-gtk = "0.18"
-
-[build-dependencies]
-# Embeds the icon and version info into the Windows .exe (no-op on other platforms).
-winresource = "0.1"
-
 [profile.release]
 opt-level = 3
 lto = "thin"
 codegen-units = 4
 strip = true
-
-# Fast local flatpak builds (./build-flatpak.sh default): incremental, no LTO.
-# A code change rebuilds in seconds instead of minutes; runtime speed is near-identical.
-[profile.fast-release]
-inherits = "release"
-lto = false
-codegen-units = 16
-incremental = true
+panic = "abort"

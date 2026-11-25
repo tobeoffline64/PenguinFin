@@ -1,16 +1,22 @@
 # PenguinFin
 
-Offline personal finance planner for **Linux and Windows**. Track income, bills and recurring
-expenses, add your checking/savings/brokerage/retirement accounts, split them into buckets, plan
-purchases with savings goals, and see month-by-month projections of where your money goes over the
-next decades.
+Offline personal finance planner for **Linux and Windows** (macOS, iPhone and Android are planned).
+Track income, bills and recurring expenses, add your checking/savings/brokerage/retirement accounts,
+split them into buckets, pay down debt, plan purchases with savings goals, and see month-by-month
+projections of where your money goes over the next decades.
 
-**[Download the latest release](https://github.com/tobeoffline64/PenguinFin/releases/latest)** ·
+**[Download](https://github.com/tobeoffline64/PenguinFin/releases)** ·
 **[Wiki & user guide](https://github.com/tobeoffline64/PenguinFin/wiki)**
 
-Built in **Rust** with **[Dioxus](https://dioxuslabs.com) desktop** and components from
+**PenguinFin 2** is built in **Rust** with **[Tauri 2](https://tauri.app)** and a
+**[Leptos](https://leptos.dev)** interface compiled to WebAssembly, using components from
 **[Rust/UI](https://github.com/rust-ui/ui)** (Tailwind CSS v4). Data is stored in a single local
 **SQLite** file. The app makes no network requests unless you turn on the optional FRED economic data.
+
+> 2.0 is in beta ([2.0.0-beta.1](https://github.com/tobeoffline64/PenguinFin/releases/tag/v2.0.0-beta.1)).
+> PenguinFin 1.x (Dioxus) is archived on the [`archive/v1`](https://github.com/tobeoffline64/PenguinFin/tree/archive/v1)
+> branch; 1.10.0 stays the "latest" release until 2.0.0 is final. Installing 2.0 upgrades 1.x data in
+> place after saving a copy of it.
 
 ## Screenshots
 
@@ -54,17 +60,16 @@ Built in **Rust** with **[Dioxus](https://dioxuslabs.com) desktop** and componen
 - **Projections**: 1–80 years, nominal or inflation-adjusted ("today's dollars"), milestone cards,
   a year-by-year table, a warning when cash would run short, and **what-if** scenarios (extra income,
   extra spending, extra investing, lower/higher returns) that are not saved.
-- **Settings & data**: currency symbol, inflation, dark mode, JSON backup/restore and the PenguinFin 2 export (in `~/Downloads`),
-  sample data, erase all.
-- **Interface**: UI size *Auto* (scales with the window) or S / M / L / XL, from the sidebar, Settings,
-  or Ctrl + / Ctrl − / Ctrl 0. The layout reflows to the space it has, and the sidebar collapses to icons
-  when it's tight. Optional **natural scrolling** (reversed wheel/touchpad direction).
+- **Settings & data**: currency symbol, inflation, dark mode, JSON backup and checked `.pfexport` copies saved
+  where you choose, restore from a backup, export or another computer's database (with a preview first),
+  sample data, erase all. The FRED key is kept in the system keychain and never put in a backup.
+- **Interface**: text size *Auto* (scales with the window) or bigger/smaller from the sidebar or
+  Ctrl + / Ctrl − / Ctrl 0. The layout reflows to the space it has. Charts read out values on hover
+  or drag. Calculations run in the window, so pages update instantly.
 - **Economic data (FRED, optional)**: with a free API key, pulls expected and current inflation, the fed
   funds rate, 10-year Treasury, 30-year mortgage rate and the S&P 500's 10-year return. Syncs in the background
   on launch and on demand (Settings → Economic data); inflation can follow FRED automatically; account forms and
   Projections show the figures as guidance. Without a key the app makes no network requests.
-- **Loading skeletons** while the window starts up and while projections are calculated (shown only if a
-  calculation takes more than ~150 ms, so quick updates don't flicker).
 
 ### How projections work
 Each month: every account grows by its own expected return, then receives its contribution and match.
@@ -73,7 +78,7 @@ Each cash-flow amount changes by its own yearly % once per elapsed year. Paydays
 counted exactly, so a biweekly paycheck lands three times in some months.
 
 ### Stock prices
-In v1, prices are typed in by hand. `src/prices.rs` defines a `PriceProvider` trait, so a live quote
+Prices are typed in by hand. `crates/penguinfin-core/src/prices.rs` defines a `PriceProvider` trait, so a live quote
 API can be added later without touching storage or the UI.
 
 ## Design system
@@ -82,117 +87,79 @@ Building a new screen or feature? Start with [docs/design-system](docs/design-sy
 
 ## Install on Windows
 
-Download `PenguinFin-<version>-windows-x64.zip` from the
-[latest release](https://github.com/tobeoffline64/PenguinFin/releases/latest), extract it and run
-**PenguinFin.exe**. Windows may say *"Windows protected your PC"* because the app isn't code-signed:
-click **More info → Run anyway**. It needs the Microsoft Edge WebView2 Runtime, which Windows 11 and
-up-to-date Windows 10 already have. Data is stored in `%APPDATA%\PenguinFin\penguinfin.db`.
+From the [releases page](https://github.com/tobeoffline64/PenguinFin/releases), download either
+`PenguinFin-<version>-windows-x64-setup.exe` (installer, with a Start menu entry and uninstaller) or
+`PenguinFin-<version>-windows-x64-portable.zip` (extract and run **PenguinFin.exe**). Windows may say
+*"Windows protected your PC"* because the app isn't code-signed: click **More info → Run anyway**. It
+needs the Microsoft Edge WebView2 Runtime, which Windows 11 and up-to-date Windows 10 already have.
+Data is stored in `%APPDATA%\PenguinFin\penguinfin.db` and the FRED key in Credential Manager.
 
 ## Install the flatpak (Linux)
 
-Download `penguinfin.flatpak` from the [latest release](https://github.com/tobeoffline64/PenguinFin/releases/latest), then:
-
-```bash
-flatpak install --user penguinfin.flatpak
-flatpak run io.github.tobeoffline64.PenguinFin
-```
-
-If Flathub isn't set up on your machine yet, add it first so the GNOME 49 runtime can be installed:
+Download the `.flatpak` file from the [releases page](https://github.com/tobeoffline64/PenguinFin/releases)
+(`penguinfin-2.flatpak` for 2.0.0-beta.1, `penguinfin.flatpak` from then on), then, in that folder:
 
 ```bash
 flatpak remote-add --user --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo
+flatpak install --user -y --reinstall penguinfin-2.flatpak
+flatpak run io.github.tobeoffline64.PenguinFin
 ```
 
-The flatpak has the `network` permission because the Dioxus webview talks to the app over a local
-`127.0.0.1` socket, and WebKit's sandboxed network process can't reach it otherwise (the window stays
-blank). PenguinFin makes no outbound requests.
+The first install also pulls the GNOME 49 runtime from Flathub. Installing over 1.x keeps your data:
+PenguinFin saves `penguinfin-1.x-backup-<date>.db` next to the database, then upgrades it. The release
+notes explain how to go back to 1.x.
 
-### Updating
-
-Your data is kept. With the [GitHub CLI](https://cli.github.com) (`sudo apt install gh`, then `gh auth login` once):
-
-```bash
-gh release download --repo tobeoffline64/penguinfin --pattern penguinfin.flatpak --dir /tmp --clobber
-flatpak install --user -y --reinstall /tmp/penguinfin.flatpak
-```
-
-Or download `penguinfin.flatpak` from the [latest release](https://github.com/tobeoffline64/penguinfin/releases/latest) and run `flatpak install --user -y --reinstall penguinfin.flatpak` in the folder you saved it to.
-
-If flatpak says *"This version … is already installed"*, you already have the latest version.
-
-If the repository is public, this also works without the GitHub CLI:
-
-```bash
-curl -fL -o /tmp/penguinfin.flatpak https://github.com/tobeoffline64/penguinfin/releases/latest/download/penguinfin.flatpak
-flatpak install --user -y --reinstall /tmp/penguinfin.flatpak
-```
-
-If the window is blank or flickers (some graphics drivers, especially NVIDIA on Wayland), start it in
-compatibility mode: `flatpak run --env=PENGUINFIN_COMPAT_RENDERING=1 io.github.tobeoffline64.PenguinFin`.
-
-Your database is at `~/.var/app/io.github.tobeoffline64.PenguinFin/data/penguinfin/penguinfin.db`.
+The flatpak's `network` permission is only for the optional FRED data, and it can talk to the
+desktop keychain (Secret Service) to keep the FRED key. Your database is at
+`~/.var/app/io.github.tobeoffline64.PenguinFin/data/penguinfin/penguinfin.db`.
 
 ## Releasing
 
-`.github/workflows/release.yml` builds the flatpak on GitHub Actions and publishes a release.
-Bump `version` in `Cargo.toml` (and `flatpak/*.metainfo.xml`), update `.github/release-notes.md`,
-and push to `main`. The workflow creates the `v<version>` tag and release with `penguinfin.flatpak`,
-the Windows zip and the source archive attached. `ci.yml` runs tests and a Windows build on every
+`.github/workflows/release.yml` publishes a release whenever the `version` in `Cargo.toml` has no
+release yet: the flatpak, the Windows installer and portable zip, and the source archive. A version
+with a suffix (`2.0.0-beta.1`) is published as a pre-release. Bump `version` in `Cargo.toml`, add a
+`<release>` to `flatpak/*.metainfo.xml`, update `.github/release-notes.md`, and push to `main`.
+`ci.yml` runs tests and clippy (including the WebAssembly interface) and a Windows build on every
 push; `wiki.yml` publishes `docs/wiki/` to the GitHub wiki.
 
 ## Build from source
 
 ```bash
-sudo apt install libwebkit2gtk-4.1-dev libgtk-3-dev libxdo-dev libsoup-3.0-dev   # Ubuntu deps
-npm install                                       # Tailwind CLI (only to change styles)
+sudo apt install libwebkit2gtk-4.1-dev libgtk-3-dev libsoup-3.0-dev libdbus-1-dev   # Ubuntu deps
+rustup target add wasm32-unknown-unknown
+cargo install --locked trunk
+cargo install --locked tauri-cli --version '^2'
+npm ci                                            # Tailwind CLI
 npx @tailwindcss/cli -i style/app.css -o assets/app.css --minify
-cargo run --release
-cargo test
+cd src-tauri && cargo tauri dev                   # live reload; `cargo tauri build` for a release build
+cargo test --workspace
 ```
 
-`PENGUINFIN_DB=/path/to/file.db cargo run` uses a different database.
-`PENGUINFIN_WINDOW_SIZE=900x700` sets the initial window size (handy for checking layouts), and in debug
-builds `PENGUINFIN_SLOW=1` delays background work so loading states can be inspected.
-`PENGUINFIN_PERF=1` prints input-to-frame latency for each click/keystroke to stderr. It also reports when the first frame was committed.
-`PENGUINFIN_FRED_URL` points the FRED client at another server (e.g. a local mock); `cargo run --example fred_check -- <key>`
-fetches every indicator from the command line.
-`cargo run --example seed -- /path/to/file.db` fills one with sample data.
+`PENGUINFIN_DB=/path/to/file.db` uses a different database, and `PENGUINFIN_NO_KEYCHAIN=1` keeps the
+FRED key in a private file instead of the keychain. `PENGUINFIN_FRED_URL` points the FRED client at
+another server; `cargo run -p penguinfin-core --example fred_check -- <key>` fetches every indicator from
+the command line, and `cargo run -p penguinfin-store --example seed -- /path/to/file.db` fills a
+database with sample data.
 
-Build the flatpak bundle (needs `sudo apt install flatpak flatpak-builder` and Rust from rustup.rs):
+Build the flatpak bundle (needs `sudo apt install flatpak flatpak-builder`):
 
 ```bash
-./build-flatpak.sh            # fast: incremental, no LTO
-./build-flatpak.sh --release  # incremental with the release profile (thin LTO)
-./build-flatpak.sh --clean    # from scratch in flatpak-builder (what the GitHub release uses)
+./build-flatpak.sh
 ```
 
-Typical times on a 4-core machine:
-
-| | First build | After a code change | No change |
-|---|---|---|---|
-| default (fast) | ~3.5 min | ~15 s | ~8 s |
-| `--release` | ~3.5 min | ~40 s | — |
-| `--clean` | ~3.5 min | ~3.5 min | ~3.5 min |
-
-The fast modes compile with cargo inside the same GNOME SDK flatpak-builder uses, but keep cargo's
-output in `target/flatpak/` (and link with `mold`), then let flatpak-builder package the binary.
-Crates are re-vendored only when `Cargo.lock` changes, and Flathub is only contacted if a runtime is
-missing. State lives in `.flatpak-dev/`; delete it (and `target/flatpak/`) to start over.
-
-For quick UI work you can skip flatpak entirely: `cargo run` builds a debug binary and rebuilds in seconds.
+It builds the interface, vendors the crates and runs `flatpak-builder` offline, producing
+`dist/penguinfin.flatpak`. See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for how the backend,
+interface and crates fit together.
 
 ## Layout
 
 | Path | What |
 | --- | --- |
-| `crates/penguinfin-core/` | The finance engine, no storage or UI: `model.rs` (domain types, schedule math), `projection.rs` (monthly projections), `debt.rs` (payoff plans), `goals.rs` (savings-goal planner), `fred.rs` (FRED client), `prices.rs`, `sample.rs` |
-| `crates/penguinfin-store/` | Storage: `db.rs` (SQLite schema, migrations, CRUD, JSON backup), `export.rs` (`.pfexport` files and importing any backup, export or database file), `tests/fixtures/` (databases written by every past schema) |
-| `src/` | The desktop app (Dioxus): `main.rs`, `app.rs`, `widgets.rs`; `src/lib.rs` re-exports the two crates as `penguinfin::…` |
-| `src/ui/` | Rust/UI components (copied from the registry, MIT; see `LICENSE-rust-ui`) |
-| `src/views/` | Dashboard, cash flows, accounts, projections, settings |
+| `crates/penguinfin-core/` | The finance engine, no storage or UI: `model.rs` (domain types, schedule math), `projection.rs` (monthly projections), `debt.rs` (payoff plans), `goals.rs` (savings-goal planner), `fred.rs` (FRED client, behind the `net` feature), `ipc.rs` (types shared by backend and interface), `prices.rs`, `sample.rs`, `format.rs` |
+| `crates/penguinfin-store/` | Storage: `db.rs` (SQLite schema, migrations, CRUD, JSON backup), `export.rs` (`.pfexport` files and importing any backup, export or database file), `tests/fixtures/` (databases written by every 1.x schema) |
+| `src-tauri/` | The backend: the only part that opens the database, files or the network. Every command is allow-listed in `build.rs` and `capabilities/default.json`; `src/secrets.rs` keeps the FRED key |
+| `ui/` | The Leptos interface, built with Trunk: `src/app.rs` (shell and store), `src/pages/`, `src/ui/` (Rust/UI components, MIT), `src/charts.rs` |
 | `style/app.css` | Tailwind source with Rust/UI theme tokens; compiled to `assets/app.css` |
 | `flatpak/` | Manifest, desktop file, AppStream metadata, icon |
-
-Small changes to the vendored Rust/UI components: `Button` dropped its router `href` mode, `Switch`
-became a controlled component with `onchange`, and `Input` is uncontrolled. It reports its value on
-commit (blur or Enter), so typing never re-renders the page.
+| `packaging/windows/` | README for the portable Windows zip |
+| `docs/` | Architecture notes, design system, wiki pages, screenshots |

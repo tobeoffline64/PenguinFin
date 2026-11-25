@@ -7,7 +7,7 @@ description = "PenguinFin 2: the Leptos interface, compiled to WebAssembly"
 
 [dependencies]
 # The engine's types and pure functions; `net` (the FRED HTTP client) stays in the backend.
-penguinfin-core = { path = "../../crates/penguinfin-core", default-features = false }
+penguinfin-core = { path = "../crates/penguinfin-core", default-features = false }
 leptos = { version = "0.8", features = ["csr"] }
 wasm-bindgen = "0.2"
 wasm-bindgen-futures = "0.4"

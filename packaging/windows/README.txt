@@ -1,8 +1,11 @@
-PenguinFin for Windows
-======================
+PenguinFin 2 for Windows (beta)
+===============================
 
 Offline personal finance planner: bills, recurring expenses, income, accounts,
-savings goals and projections. https://github.com/tobeoffline64/PenguinFin
+debt payoff, savings goals and projections. https://github.com/tobeoffline64/PenguinFin
+
+This is the portable copy. The installer (PenguinFin_<version>_x64-setup.exe) on
+the Releases page adds a Start menu entry and an uninstaller instead.
 
 Running it
 ----------
@@ -12,18 +15,16 @@ Running it
 Windows may show "Windows protected your PC" the first time because the app isn't
 code-signed. Click "More info" and then "Run anyway".
 
-PenguinFin needs the Microsoft Edge WebView2 Runtime. It's built into Windows 11 and
-almost every up-to-date Windows 10. If the window doesn't open, install the
-"Evergreen Standalone Installer" from:
-https://developer.microsoft.com/microsoft-edge/webview2/
+PenguinFin needs the Microsoft Edge WebView2 Runtime, which is built into Windows 11
+and up-to-date Windows 10.
 
 Your data
 ---------
 Everything is stored on this computer in:
   %APPDATA%\PenguinFin\penguinfin.db
-Backups (Settings > Your data > Export backup) are saved to your Downloads folder.
+the same file PenguinFin 1 used. The first time PenguinFin 2 opens it, it saves a
+copy named penguinfin-1.x-backup-<date>.db in the same folder and then upgrades it.
+PenguinFin 1 can't open the upgraded file; to go back to 1.x, rename that copy to
+penguinfin.db.
 
-Updating
---------
-Download the new zip from the Releases page and replace PenguinFin.exe.
-Your data stays where it is.
+Your FRED key (if you use one) is kept in Windows Credential Manager.
